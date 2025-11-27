@@ -46,6 +46,173 @@ except ImportError:
 
 
 # =============================================================================
+# METRIC DEFINITIONS & TOOLTIPS
+# =============================================================================
+
+METRIC_DEFINITIONS = {
+    "total_return": {
+        "name": "Total Return",
+        "short": "Cumulative profit/loss over the entire period.",
+        "detailed": """**Total Return** measures the overall percentage gain or loss of your portfolio
+        from start to end. A 50% total return means your portfolio grew by half its initial value.
+
+        Formula: (Final Value - Initial Value) / Initial Value""",
+    },
+    "cagr": {
+        "name": "CAGR",
+        "short": "Compound Annual Growth Rate - annualized return.",
+        "detailed": """**CAGR (Compound Annual Growth Rate)** represents the mean annual growth rate
+        assuming profits are reinvested. It smooths out volatility to show what the investment
+        would have returned if it grew at a steady rate.
+
+        Formula: (Final Value / Initial Value)^(1/years) - 1
+
+        Example: A 10% CAGR means your investment grows by 10% each year on average.""",
+    },
+    "sharpe_ratio": {
+        "name": "Sharpe Ratio",
+        "short": "Risk-adjusted return (return per unit of risk).",
+        "detailed": """**Sharpe Ratio** measures excess return per unit of volatility. It helps
+        compare strategies with different risk levels.
+
+        Formula: (Portfolio Return - Risk-Free Rate) / Portfolio Volatility
+
+        Interpretation:
+        - **< 1.0**: Suboptimal risk-adjusted returns
+        - **1.0 - 2.0**: Good risk-adjusted returns
+        - **2.0 - 3.0**: Very good
+        - **> 3.0**: Excellent (but verify data quality)""",
+    },
+    "max_drawdown": {
+        "name": "Max Drawdown",
+        "short": "Largest peak-to-trough decline.",
+        "detailed": """**Maximum Drawdown** is the largest percentage drop from a peak to a trough
+        before a new peak is achieved. It measures the worst-case scenario for an investor
+        who bought at the peak.
+
+        Example: A -30% max drawdown means the portfolio lost 30% from its highest point
+        before recovering.
+
+        Important: This metric is crucial for risk management and setting stop-losses.""",
+    },
+    "volatility": {
+        "name": "Volatility",
+        "short": "Annualized standard deviation of returns.",
+        "detailed": """**Volatility** measures the dispersion of returns around their mean.
+        Higher volatility indicates larger price swings and greater uncertainty.
+
+        Formula: Standard Deviation of Daily Returns × √252
+
+        Interpretation:
+        - **< 10%**: Low volatility (bonds, stable stocks)
+        - **10-20%**: Moderate (diversified equity portfolios)
+        - **20-30%**: High (individual stocks, growth sectors)
+        - **> 30%**: Very high (crypto, leveraged products)""",
+    },
+    "alpha": {
+        "name": "Alpha",
+        "short": "Excess return vs benchmark (skill measure).",
+        "detailed": """**Alpha** measures the portfolio's excess return relative to what would be
+        expected given its beta (market exposure). Positive alpha indicates the strategy
+        adds value beyond market exposure.
+
+        Formula: Portfolio Return - (Risk-Free Rate + Beta × (Market Return - Risk-Free Rate))
+
+        Interpretation:
+        - **Positive Alpha**: Strategy outperforms its expected return
+        - **Zero Alpha**: Returns match expected market-adjusted return
+        - **Negative Alpha**: Strategy underperforms expectations""",
+    },
+    "beta": {
+        "name": "Beta",
+        "short": "Sensitivity to market movements.",
+        "detailed": """**Beta** measures how much the portfolio moves relative to the benchmark.
+        It indicates systematic (market) risk exposure.
+
+        Interpretation:
+        - **β = 1.0**: Moves with the market
+        - **β > 1.0**: More volatile than market (amplifies moves)
+        - **β < 1.0**: Less volatile than market (dampens moves)
+        - **β < 0**: Moves opposite to market (rare)
+
+        Example: β = 1.5 means if the market rises 10%, expect ~15% rise.""",
+    },
+    "sortino_ratio": {
+        "name": "Sortino Ratio",
+        "short": "Like Sharpe but only penalizes downside volatility.",
+        "detailed": """**Sortino Ratio** is similar to Sharpe Ratio but only considers downside
+        volatility. It doesn't penalize upside volatility, making it a better measure
+        for strategies with asymmetric returns.
+
+        Formula: (Portfolio Return - Risk-Free Rate) / Downside Deviation
+
+        Higher is better. A Sortino of 2.0+ indicates good risk-adjusted returns
+        with limited downside.""",
+    },
+    "calmar_ratio": {
+        "name": "Calmar Ratio",
+        "short": "CAGR divided by maximum drawdown.",
+        "detailed": """**Calmar Ratio** compares annualized return to maximum drawdown,
+        measuring return per unit of drawdown risk.
+
+        Formula: CAGR / |Max Drawdown|
+
+        Interpretation:
+        - **< 1.0**: Drawdown exceeds annual returns
+        - **1.0 - 2.0**: Acceptable
+        - **> 2.0**: Good
+        - **> 3.0**: Excellent""",
+    },
+    "win_rate": {
+        "name": "Win Rate",
+        "short": "Percentage of positive return days.",
+        "detailed": """**Win Rate** is the percentage of trading days with positive returns.
+
+        Note: Win rate alone doesn't determine profitability. A 40% win rate can be
+        profitable if winners are larger than losers (and vice versa).
+
+        Typical values:
+        - **Trend following**: 30-45%
+        - **Mean reversion**: 50-65%
+        - **Market making**: 55-70%""",
+    },
+}
+
+VIX_REGIME_DEFINITIONS = {
+    "very_low": {
+        "name": "Very Low VIX (<12)",
+        "description": "Market complacency. Extremely low fear, often seen before corrections.",
+        "color": "#2ecc71",
+    },
+    "low": {
+        "name": "Low VIX (12-15)",
+        "description": "Calm markets. Low implied volatility, favorable for carry strategies.",
+        "color": "#27ae60",
+    },
+    "normal": {
+        "name": "Normal VIX (15-20)",
+        "description": "Typical market conditions. Balanced risk/reward environment.",
+        "color": "#3498db",
+    },
+    "elevated": {
+        "name": "Elevated VIX (20-25)",
+        "description": "Increased uncertainty. Market stress beginning, options more expensive.",
+        "color": "#f39c12",
+    },
+    "high": {
+        "name": "High VIX (25-30)",
+        "description": "Significant fear. Large market moves expected, hedging costs high.",
+        "color": "#e74c3c",
+    },
+    "extreme": {
+        "name": "Extreme VIX (>30)",
+        "description": "Crisis mode. Panic selling, liquidity concerns, extreme moves.",
+        "color": "#8e44ad",
+    },
+}
+
+
+# =============================================================================
 # PAGE CONFIGURATION
 # =============================================================================
 
@@ -668,6 +835,72 @@ def get_workflow_step() -> int:
     return 1
 
 
+def render_metric_with_tooltip(
+    label: str,
+    value: str,
+    metric_key: str,
+    delta: str = None,
+    delta_color: str = "normal",
+):
+    """
+    Render a metric with an informational tooltip.
+
+    Args:
+        label: Display label for the metric.
+        value: Formatted value to display.
+        metric_key: Key to lookup in METRIC_DEFINITIONS.
+        delta: Optional delta value.
+        delta_color: Color for delta ("normal", "inverse", "off").
+    """
+    definition = METRIC_DEFINITIONS.get(metric_key, {})
+    help_text = definition.get("short", "")
+
+    st.metric(
+        label=label,
+        value=value,
+        delta=delta,
+        delta_color=delta_color,
+        help=help_text,
+    )
+
+
+def render_info_expander(metric_key: str):
+    """Render a small expandable info section for a metric."""
+    definition = METRIC_DEFINITIONS.get(metric_key, {})
+    if definition:
+        with st.expander(f"ℹ️ About {definition.get('name', metric_key)}", expanded=False):
+            st.markdown(definition.get("detailed", definition.get("short", "")))
+
+
+def render_vix_explanation():
+    """Render explanation card for VIX regimes."""
+    st.markdown("""
+    <div class="info-box" style="margin-bottom: 1.5rem;">
+        <div class="info-box-icon">📊</div>
+        <div class="info-box-content">
+            <div class="info-box-title">Understanding VIX Regimes</div>
+            <p class="info-box-text">
+                The VIX (Volatility Index) measures market expectations of near-term volatility
+                conveyed by S&P 500 option prices. It's often called the "fear gauge" because
+                it typically rises during market stress and falls during calm periods.
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("📖 VIX Regime Definitions", expanded=False):
+        for key, regime in VIX_REGIME_DEFINITIONS.items():
+            st.markdown(f"""
+            <div style="display: flex; align-items: center; margin-bottom: 0.5rem; padding: 0.5rem; border-radius: 6px; background: {regime['color']}15;">
+                <div style="width: 12px; height: 12px; border-radius: 50%; background: {regime['color']}; margin-right: 10px;"></div>
+                <div>
+                    <strong>{regime['name']}</strong><br/>
+                    <span style="font-size: 0.85rem; color: var(--text-secondary);">{regime['description']}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
 def render_workflow_indicator():
     """Render the workflow step indicator."""
     current_step = get_workflow_step()
@@ -1173,55 +1406,74 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
             data_info = f"Using {'aligned' if use_aligned else 'full'} data: {aligned_days if use_aligned else full_days} days"
             st.caption(f"ℹ️ {data_info}")
 
-        # Metrics display
-        st.markdown("#### Performance Metrics")
+        # Metrics display with tooltips
+        col_header, col_info = st.columns([4, 1])
+        with col_header:
+            st.markdown("#### Performance Metrics")
+        with col_info:
+            with st.popover("ℹ️ Metric Guide"):
+                st.markdown("**Understanding Performance Metrics**")
+                st.markdown("""
+                Hover over any metric to see a quick explanation.
+                Click below to learn more about each metric.
+                """)
+                for key in ["total_return", "cagr", "sharpe_ratio", "max_drawdown", "volatility", "alpha", "beta"]:
+                    defn = METRIC_DEFINITIONS.get(key, {})
+                    with st.expander(defn.get("name", key)):
+                        st.markdown(defn.get("detailed", ""))
+
         m1, m2, m3, m4 = st.columns(4)
         with m1:
-            st.metric("Total Return", f"{metrics.total_return:.2%}")
+            render_metric_with_tooltip("Total Return", f"{metrics.total_return:.2%}", "total_return")
         with m2:
-            st.metric("CAGR", f"{metrics.cagr:.2%}")
+            render_metric_with_tooltip("CAGR", f"{metrics.cagr:.2%}", "cagr")
         with m3:
-            st.metric("Sharpe Ratio", f"{metrics.sharpe_ratio:.2f}")
+            render_metric_with_tooltip("Sharpe Ratio", f"{metrics.sharpe_ratio:.2f}", "sharpe_ratio")
         with m4:
-            st.metric("Max Drawdown", f"{metrics.max_drawdown:.2%}")
+            render_metric_with_tooltip("Max Drawdown", f"{metrics.max_drawdown:.2%}", "max_drawdown")
 
         m5, m6, m7, m8 = st.columns(4)
         with m5:
-            st.metric("Volatility", f"{metrics.volatility:.2%}")
+            render_metric_with_tooltip("Volatility", f"{metrics.volatility:.2%}", "volatility")
         with m6:
-            st.metric("Trading Days", f"{metrics.trading_days:,}")
+            st.metric("Trading Days", f"{metrics.trading_days:,}", help="Total number of trading days in the analysis period.")
         with m7:
             alpha_val = f"{aligned_metrics.alpha:.2%}" if aligned_metrics.alpha else "N/A"
-            st.metric("Alpha", alpha_val)
+            render_metric_with_tooltip("Alpha", alpha_val, "alpha")
         with m8:
             beta_val = f"{aligned_metrics.beta:.2f}" if aligned_metrics.beta else "N/A"
-            st.metric("Beta", beta_val)
+            render_metric_with_tooltip("Beta", beta_val, "beta")
 
         st.markdown("---")
 
         # Visualization tabs
-        viz_tabs = st.tabs(["Returns", "Drawdown", "Distribution", "Rolling Metrics"])
+        viz_tabs = st.tabs(["📈 Returns", "📉 Drawdown", "📊 Distribution", "🔄 Rolling Metrics"])
 
         with viz_tabs[0]:
-            st.plotly_chart(report_gen.plot_cumulative_returns(), width="stretch")
+            st.caption("💡 Cumulative returns show the growth of $1 invested over time. Compare your strategy vs benchmark.")
+            st.plotly_chart(report_gen.plot_cumulative_returns(), use_container_width=True)
             # Use cached comparison plot
+            st.caption("💡 Individual strategy comparison shows how each component contributes to the portfolio.")
             if st.session_state.cached_comparison_plot is not None:
-                st.plotly_chart(st.session_state.cached_comparison_plot, width="stretch")
+                st.plotly_chart(st.session_state.cached_comparison_plot, use_container_width=True)
             else:
-                st.plotly_chart(create_comparison_plot(st.session_state.backtests, portfolio), width="stretch")
+                st.plotly_chart(create_comparison_plot(st.session_state.backtests, portfolio), use_container_width=True)
 
         with viz_tabs[1]:
-            st.plotly_chart(report_gen.plot_drawdown(), width="stretch")
+            st.caption("💡 Drawdown measures peak-to-trough declines. Shallower and shorter drawdowns indicate better risk management.")
+            st.plotly_chart(report_gen.plot_drawdown(), use_container_width=True)
 
         with viz_tabs[2]:
+            st.caption("💡 Return distribution shows the frequency of different return levels. A normal distribution centered right of zero is ideal.")
             c1, c2 = st.columns(2)
             with c1:
-                st.plotly_chart(report_gen.plot_returns_distribution(), width="stretch")
+                st.plotly_chart(report_gen.plot_returns_distribution(), use_container_width=True)
             with c2:
-                st.plotly_chart(report_gen.plot_monthly_returns_table(), width="stretch")
+                st.plotly_chart(report_gen.plot_monthly_returns_table(), use_container_width=True)
 
         with viz_tabs[3]:
-            st.plotly_chart(report_gen.plot_rolling_metrics(), width="stretch")
+            st.caption("💡 Rolling metrics show how performance evolves over time. Consistent metrics indicate stable strategy behavior.")
+            st.plotly_chart(report_gen.plot_rolling_metrics(), use_container_width=True)
 
 
 # =============================================================================
@@ -1258,6 +1510,9 @@ def render_vix_tab():
         if full_days != aligned_days:
             st.caption(f"ℹ️ VIX analysis uses {aligned_days:,} aligned days (out of {full_days:,} total)")
 
+    # VIX explanation section
+    render_vix_explanation()
+
     # Cache setup
     data_hash = f"{len(strategy_returns)}_{strategy_returns.sum():.6f}"
     strategy_vals, strategy_idx = series_to_cache_args(strategy_returns)
@@ -1273,7 +1528,25 @@ def render_vix_tab():
     )
 
     # Regime stats table
-    st.markdown("#### Performance by VIX Regime")
+    col_title, col_help = st.columns([4, 1])
+    with col_title:
+        st.markdown("#### Performance by VIX Regime")
+    with col_help:
+        with st.popover("ℹ️ Table Guide"):
+            st.markdown("""
+            **Regime Statistics Columns:**
+
+            - **Days**: Number of trading days in this regime
+            - **Ann. Return**: Annualized return during this regime
+            - **Ann. Vol**: Annualized volatility during this regime
+            - **Sharpe**: Risk-adjusted return for this regime
+            - **Win Rate**: Percentage of positive days
+            - **Max DD**: Maximum drawdown during this regime
+
+            💡 Compare performance across regimes to understand
+            how your strategy behaves in different market conditions.
+            """)
+
     regime_stats = vix_analyzer.calculate_regime_stats()
     display_df = regime_stats.copy()
     display_df.columns = [
@@ -1282,33 +1555,37 @@ def render_vix_tab():
         "Total Return (%)", "Bench Return (%)", "Alpha (%)"
     ]
     display_cols = ["Regime", "Days", "Ann. Return (%)", "Ann. Vol (%)", "Sharpe", "Win Rate (%)", "Max DD (%)"]
-    st.dataframe(display_df[display_cols], width="stretch", hide_index=True)
+    st.dataframe(display_df[display_cols], use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
-    # Visualizations
-    viz_tabs = st.tabs(["Regime Returns", "Return Distribution", "VIX Timeline", "Rolling Performance"])
+    # Visualizations with explanations
+    viz_tabs = st.tabs(["📈 Regime Returns", "📊 Return Distribution", "📉 VIX Timeline", "🔄 Rolling Performance"])
 
     with viz_tabs[0]:
-        st.plotly_chart(vix_analyzer.plot_cumulative_with_regimes(), width="stretch")
+        st.caption("💡 Cumulative returns with VIX regime backgrounds. Colors indicate market volatility environment.")
+        st.plotly_chart(vix_analyzer.plot_cumulative_with_regimes(), use_container_width=True)
 
     with viz_tabs[1]:
+        st.caption("💡 Compare return distributions across different VIX environments.")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(vix_analyzer.plot_returns_by_regime(), width="stretch")
+            st.plotly_chart(vix_analyzer.plot_returns_by_regime(), use_container_width=True)
         with c2:
-            st.plotly_chart(vix_analyzer.plot_regime_distribution(), width="stretch")
+            st.plotly_chart(vix_analyzer.plot_regime_distribution(), use_container_width=True)
 
     with viz_tabs[2]:
-        st.plotly_chart(vix_analyzer.plot_vix_vs_returns(), width="stretch")
+        st.caption("💡 Visualize the relationship between VIX levels and your strategy returns over time.")
+        st.plotly_chart(vix_analyzer.plot_vix_vs_returns(), use_container_width=True)
 
     with viz_tabs[3]:
+        st.caption("💡 Rolling performance metrics overlaid with VIX regime periods.")
         rolling_fig = create_vix_rolling_plot(
             data_hash, _ROLLING_PLOT_VERSION,
             strategy_vals, strategy_idx, vix_vals, vix_idx,
             benchmark_vals, benchmark_idx, window=20
         )
-        st.plotly_chart(rolling_fig, width="stretch")
+        st.plotly_chart(rolling_fig, use_container_width=True)
 
 
 # =============================================================================

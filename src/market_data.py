@@ -1,6 +1,9 @@
 """
 Module for downloading market data (benchmark and VIX) from Yahoo Finance.
 
+Supports loading from local CSV files first (for deployed environments),
+with Yahoo Finance as fallback for local development.
+
 Usage:
     python market_data.py [--ticker TICKER] [--start DATE] [--end DATE]
 """
@@ -14,14 +17,22 @@ from pathlib import Path
 from typing import Optional, Union
 
 import pandas as pd
-import yfinance as yf
 
 from config import (
     CACHE_DIR,
+    DATA_DIR,
     INTERMEDIATE_DIR,
     BENCHMARK_TICKERS,
     VIX_TICKER,
 )
+
+
+# =============================================================================
+# LOCAL DATA PATHS
+# =============================================================================
+
+LOCAL_SPY_PATH = DATA_DIR / "spy.csv"
+LOCAL_VIX_PATH = DATA_DIR / "vix.csv"
 
 
 # =============================================================================
@@ -55,20 +66,29 @@ class MarketDataDownloader:
     """
     Download and cache market data from Yahoo Finance.
 
+    Supports loading from local CSV files first (for deployed environments),
+    with Yahoo Finance as fallback for local development.
+
     Example:
         downloader = MarketDataDownloader()
         spy_data = downloader.download_benchmark("SPY", "2020-01-01")
         vix_data = downloader.download_vix("2020-01-01")
     """
 
-    def __init__(self, cache_dir: Optional[Union[str, Path]] = CACHE_DIR):
+    def __init__(
+        self,
+        cache_dir: Optional[Union[str, Path]] = CACHE_DIR,
+        use_local_data: bool = True,
+    ):
         """
         Initialize the downloader.
 
         Args:
             cache_dir: Directory for caching data. None to disable caching.
+            use_local_data: Whether to try loading from local CSV files first.
         """
         self.cache_dir = Path(cache_dir) if cache_dir else None
+        self.use_local_data = use_local_data
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -79,6 +99,52 @@ class MarketDataDownloader:
         clean_ticker = ticker.replace("^", "").replace("/", "_")
         return self.cache_dir / f"{clean_ticker}_{start}_{end}.parquet"
 
+    def _load_from_local_csv(
+        self,
+        ticker: str,
+        start_date: str,
+        end_date: str,
+    ) -> Optional[pd.DataFrame]:
+        """
+        Load data from local CSV file if available.
+
+        Args:
+            ticker: Ticker symbol (SPY or ^VIX).
+            start_date: Start date string.
+            end_date: End date string.
+
+        Returns:
+            DataFrame if local file exists and has data, None otherwise.
+        """
+        # Determine local file path based on ticker
+        ticker_upper = ticker.upper().replace("^", "")
+        if ticker_upper == "SPY":
+            local_path = LOCAL_SPY_PATH
+        elif ticker_upper == "VIX":
+            local_path = LOCAL_VIX_PATH
+        else:
+            return None
+
+        if not local_path.exists():
+            return None
+
+        try:
+            df = pd.read_csv(local_path)
+            df["date"] = pd.to_datetime(df["date"])
+
+            # Filter by date range
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+            df = df[(df["date"] >= start_dt) & (df["date"] <= end_dt)]
+
+            if df.empty:
+                return None
+
+            return df.reset_index(drop=True)
+
+        except Exception:
+            return None
+
     def _download_from_yahoo(
         self,
         ticker: str,
@@ -86,6 +152,14 @@ class MarketDataDownloader:
         end_date: str,
     ) -> pd.DataFrame:
         """Download data from Yahoo Finance."""
+        try:
+            import yfinance as yf
+        except ImportError:
+            raise ImportError(
+                "yfinance is required for downloading data. "
+                "Install with: pip install yfinance"
+            )
+
         data = yf.download(
             ticker,
             start=start_date,
@@ -120,6 +194,8 @@ class MarketDataDownloader:
         """
         Download historical data for a ticker.
 
+        Tries to load from local CSV files first, then cache, then Yahoo Finance.
+
         Args:
             ticker: Yahoo Finance ticker symbol.
             start_date: Start date.
@@ -132,13 +208,19 @@ class MarketDataDownloader:
         start_str = pd.to_datetime(start_date).strftime("%Y-%m-%d")
         end_str = pd.to_datetime(end_date or datetime.now()).strftime("%Y-%m-%d")
 
+        # Try local CSV files first (for deployed environments)
+        if self.use_local_data:
+            local_data = self._load_from_local_csv(ticker, start_str, end_str)
+            if local_data is not None and not local_data.empty:
+                return local_data
+
         cache_path = self._get_cache_path(ticker, start_str, end_str)
 
-        # Try cache first
+        # Try cache second
         if use_cache and cache_path and cache_path.exists():
             return pd.read_parquet(cache_path)
 
-        # Download from Yahoo
+        # Download from Yahoo as fallback
         data = self._download_from_yahoo(ticker, start_str, end_str)
 
         # Save to cache
