@@ -730,7 +730,6 @@ def init_session_state():
         "analysis_complete": False,
         "quantstats_report": None,
         "use_aligned_data": True,
-        "current_step": 1,
         # Cached analysis results to avoid recalculation
         "cached_metrics": None,
         "cached_aligned_metrics": None,
@@ -828,14 +827,13 @@ def parse_uploaded_file(uploaded_file) -> Optional[pd.DataFrame]:
 
 
 def get_workflow_step() -> int:
-    """Determine current workflow step based on state."""
-    # Return the manually set step if available
-    return st.session_state.get("current_step", 1)
-
-
-def set_workflow_step(step: int):
-    """Set the current workflow step."""
-    st.session_state.current_step = step
+    """Determine current workflow step based on application state."""
+    # Determine step based on actual progress, not tab selection
+    if st.session_state.analysis_complete:
+        return 4  # Results
+    elif st.session_state.backtests:
+        return 2  # Configure (data loaded, ready to configure weights)
+    return 1  # Upload
 
 
 def render_metric_with_tooltip(
@@ -905,21 +903,15 @@ def render_vix_explanation():
 
 
 def render_workflow_indicator():
-    """Render the workflow step indicator."""
+    """Render the workflow step indicator.
+
+    Steps are based on actual application state:
+    - Step 1 (Upload): Active until data is loaded
+    - Step 2 (Configure): Active when data is loaded but analysis not run
+    - Step 3 (Analyze): Active when ready to analyze (same as step 2, user clicks Run)
+    - Step 4 (Results): Active when analysis is complete
+    """
     current_step = get_workflow_step()
-
-    # Determine which steps are actually completed based on state
-    has_data = bool(st.session_state.backtests)
-    has_weights = has_data  # Weights are auto-configured when data is loaded
-    analysis_complete = st.session_state.analysis_complete
-
-    # Step completion status (independent of current tab)
-    step_completed = {
-        1: has_data,           # Upload is complete when data is loaded
-        2: has_data,           # Configure is complete when data exists (weights have defaults)
-        3: analysis_complete,  # Analyze is complete when analysis has run
-        4: analysis_complete,  # Results available after analysis
-    }
 
     steps = [
         ("1", "Upload Data"),
@@ -930,14 +922,11 @@ def render_workflow_indicator():
 
     step_items = []
     for i, (num, label) in enumerate(steps, 1):
-        # Determine status: completed only if step is done AND we're past it
-        is_completed = step_completed.get(i, False) and i < current_step
-        is_active = (i == current_step)
-
-        if is_completed:
+        # Step is completed if we're past it based on actual progress
+        if i < current_step:
             status = "completed"
             icon = "✓"
-        elif is_active:
+        elif i == current_step:
             status = "active"
             icon = num
         else:
@@ -1122,7 +1111,6 @@ def render_sidebar():
 
 def render_upload_tab():
     """Render the upload and configuration tab."""
-    set_workflow_step(1)
     col1, col2 = st.columns([3, 2])
 
     with col1:
@@ -1203,7 +1191,6 @@ def render_upload_tab():
 
 def render_weights_tab():
     """Render the portfolio weights configuration tab."""
-    set_workflow_step(2)
     if not st.session_state.backtests:
         st.markdown("""
         <div class="info-box">
@@ -1304,7 +1291,6 @@ def render_weights_tab():
 
 def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
     """Render the analysis results tab."""
-    set_workflow_step(3)
     if not st.session_state.backtests:
         st.markdown("""
         <div class="info-box">
@@ -1509,7 +1495,6 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
 
 def render_vix_tab():
     """Render the VIX regime analysis tab."""
-    set_workflow_step(4)
     if not st.session_state.analysis_complete:
         st.markdown("""
         <div class="info-box">
@@ -1622,7 +1607,6 @@ def render_vix_tab():
 
 def render_export_tab():
     """Render the export tab."""
-    set_workflow_step(4)  # Export is also part of Results step
     if not st.session_state.analysis_complete:
         st.markdown("""
         <div class="info-box">
