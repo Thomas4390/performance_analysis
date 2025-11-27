@@ -725,6 +725,7 @@ def init_session_state():
         "strategy_returns": None,
         "strategy_returns_full": None,
         "benchmark_returns": None,
+        "benchmark_ticker": "SPY",
         "vix": None,
         "analysis_complete": False,
         "quantstats_report": None,
@@ -828,11 +829,13 @@ def parse_uploaded_file(uploaded_file) -> Optional[pd.DataFrame]:
 
 def get_workflow_step() -> int:
     """Determine current workflow step based on state."""
-    if st.session_state.analysis_complete:
-        return 4
-    elif st.session_state.backtests:
-        return 2
-    return 1
+    # Return the manually set step if available
+    return st.session_state.get("current_step", 1)
+
+
+def set_workflow_step(step: int):
+    """Set the current workflow step."""
+    st.session_state.current_step = step
 
 
 def render_metric_with_tooltip(
@@ -1101,6 +1104,7 @@ def render_sidebar():
 
 def render_upload_tab():
     """Render the upload and configuration tab."""
+    set_workflow_step(1)
     col1, col2 = st.columns([3, 2])
 
     with col1:
@@ -1181,6 +1185,7 @@ def render_upload_tab():
 
 def render_weights_tab():
     """Render the portfolio weights configuration tab."""
+    set_workflow_step(2)
     if not st.session_state.backtests:
         st.markdown("""
         <div class="info-box">
@@ -1281,6 +1286,7 @@ def render_weights_tab():
 
 def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
     """Render the analysis results tab."""
+    set_workflow_step(3)
     if not st.session_state.backtests:
         st.markdown("""
         <div class="info-box">
@@ -1372,6 +1378,9 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
                 st.session_state.cached_comparison_plot = create_comparison_plot(
                     st.session_state.backtests, portfolio
                 )
+
+                # Save benchmark ticker for reports
+                st.session_state.benchmark_ticker = benchmark_ticker
 
                 st.session_state.analysis_complete = True
                 st.toast("Analysis complete!", icon="✅")
@@ -1482,6 +1491,7 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
 
 def render_vix_tab():
     """Render the VIX regime analysis tab."""
+    set_workflow_step(4)
     if not st.session_state.analysis_complete:
         st.markdown("""
         <div class="info-box">
@@ -1594,6 +1604,7 @@ def render_vix_tab():
 
 def render_export_tab():
     """Render the export tab."""
+    set_workflow_step(4)  # Export is also part of Results step
     if not st.session_state.analysis_complete:
         st.markdown("""
         <div class="info-box">
@@ -1678,9 +1689,13 @@ def render_export_tab():
 
                     with st.spinner("Generating report..."):
                         returns = st.session_state.strategy_returns.copy()
+                        returns.name = "Strategy"
+
                         benchmark = None
+                        benchmark_name = st.session_state.benchmark_ticker
                         if include_benchmark and st.session_state.benchmark_returns is not None:
                             benchmark = st.session_state.benchmark_returns.copy()
+                            benchmark.name = benchmark_name
 
                         returns.index = pd.to_datetime(returns.index)
                         if benchmark is not None:
@@ -1691,7 +1706,8 @@ def render_export_tab():
 
                         qs.reports.html(
                             returns, benchmark=benchmark,
-                            output=temp_path, title="Performance Analysis Report"
+                            output=temp_path, title="Performance Analysis Report",
+                            benchmark_title=benchmark_name if include_benchmark else None,
                         )
 
                         with open(temp_path, 'r', encoding='utf-8') as f:

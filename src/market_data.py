@@ -31,8 +31,14 @@ from config import (
 # LOCAL DATA PATHS
 # =============================================================================
 
-LOCAL_SPY_PATH = DATA_DIR / "spy.csv"
-LOCAL_VIX_PATH = DATA_DIR / "vix.csv"
+LOCAL_DATA_FILES = {
+    "SPY": DATA_DIR / "spy.csv",
+    "QQQ": DATA_DIR / "qqq.csv",
+    "IWM": DATA_DIR / "iwm.csv",
+    "DIA": DATA_DIR / "dia.csv",
+    "VTI": DATA_DIR / "vti.csv",
+    "VIX": DATA_DIR / "vix.csv",
+}
 
 
 # =============================================================================
@@ -109,23 +115,19 @@ class MarketDataDownloader:
         Load data from local CSV file if available.
 
         Args:
-            ticker: Ticker symbol (SPY or ^VIX).
+            ticker: Ticker symbol (SPY, QQQ, IWM, DIA, VTI, or ^VIX).
             start_date: Start date string.
             end_date: End date string.
 
         Returns:
             DataFrame if local file exists and has data, None otherwise.
         """
-        # Determine local file path based on ticker
+        # Normalize ticker name
         ticker_upper = ticker.upper().replace("^", "")
-        if ticker_upper == "SPY":
-            local_path = LOCAL_SPY_PATH
-        elif ticker_upper == "VIX":
-            local_path = LOCAL_VIX_PATH
-        else:
-            return None
 
-        if not local_path.exists():
+        # Get local file path from dictionary
+        local_path = LOCAL_DATA_FILES.get(ticker_upper)
+        if local_path is None or not local_path.exists():
             return None
 
         try:
