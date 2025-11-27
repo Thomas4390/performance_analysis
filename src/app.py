@@ -1,8 +1,8 @@
 """
-Streamlit Application for Backtest Analysis.
+Streamlit Application for Performance Analysis.
 
 A comprehensive interactive dashboard for:
-- Uploading and analyzing multiple backtests
+- Uploading and analyzing multiple strategies
 - Combining portfolios with custom weights
 - VIX regime analysis
 - Performance metrics and visualizations
@@ -50,7 +50,7 @@ except ImportError:
 # =============================================================================
 
 st.set_page_config(
-    page_title="Backtest Analysis",
+    page_title="Performance Analysis",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -126,12 +126,16 @@ def inject_custom_css():
         }
 
         .app-title {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: white;
-            margin: 0 0 0.5rem 0;
+            font-size: 2.5rem !important;
+            font-weight: 800 !important;
+            color: #5eead4 !important;
+            margin: 0 0 0.5rem 0 !important;
             letter-spacing: -0.03em;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .app-header h1 {
+            color: #5eead4 !important;
         }
 
         .app-subtitle {
@@ -749,8 +753,8 @@ def render_header():
     """Render the application header."""
     st.markdown("""
     <div class="app-header">
-        <h1 class="app-title">Backtest Analysis Dashboard</h1>
-        <p class="app-subtitle">Analyze and combine your trading strategy backtests with VIX regime analysis</p>
+        <h1 class="app-title">Performance Analysis Dashboard</h1>
+        <p class="app-subtitle">Analyze and combine your trading strategies with VIX regime analysis</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -769,13 +773,13 @@ def render_sidebar():
         if num_backtests > 0:
             st.markdown(f"""
             <div class="status-badge success">
-                <span>●</span> {num_backtests} backtest{'s' if num_backtests > 1 else ''} loaded
+                <span>●</span> {num_backtests} strateg{'ies' if num_backtests > 1 else 'y'} loaded
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
             <div class="status-badge warning">
-                <span>○</span> No backtests loaded
+                <span>○</span> No strategies loaded
             </div>
             """, unsafe_allow_html=True)
 
@@ -784,7 +788,7 @@ def render_sidebar():
         # File upload
         st.markdown("### Upload Files")
         uploaded_files = st.file_uploader(
-            "Drag and drop backtest files",
+            "Drag and drop strategy files",
             type=["ods", "xlsx", "xls", "csv"],
             accept_multiple_files=True,
             help="Supported: ODS, XLSX, XLS, CSV",
@@ -872,14 +876,14 @@ def render_upload_tab():
             <div class="card-header">
                 <div class="card-icon primary">📁</div>
                 <div>
-                    <h4 class="card-title">Upload Backtest Files</h4>
+                    <h4 class="card-title">Upload Strategy Files</h4>
                     <p class="card-subtitle">Import your strategy performance data</p>
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
         st.markdown("""
-        Upload your backtest files using the sidebar. Supported formats:
+        Upload your strategy files using the sidebar. Supported formats:
 
         | Format | Description |
         |--------|-------------|
@@ -901,7 +905,7 @@ def render_upload_tab():
                 <div class="info-box-icon">👈</div>
                 <div class="info-box-content">
                     <div class="info-box-title">Get Started</div>
-                    <p class="info-box-text">Use the sidebar to upload your backtest files.</p>
+                    <p class="info-box-text">Use the sidebar to upload your strategy files.</p>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -950,7 +954,7 @@ def render_weights_tab():
             <div class="info-box-icon">⚠️</div>
             <div class="info-box-content">
                 <div class="info-box-title">No Data Available</div>
-                <p class="info-box-text">Please upload at least one backtest file first.</p>
+                <p class="info-box-text">Please upload at least one strategy file first.</p>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1050,7 +1054,7 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
             <div class="info-box-icon">⚠️</div>
             <div class="info-box-content">
                 <div class="info-box-title">No Data Available</div>
-                <p class="info-box-text">Please upload at least one backtest file first.</p>
+                <p class="info-box-text">Please upload at least one strategy file first.</p>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1410,7 +1414,7 @@ def render_export_tab():
 
                         qs.reports.html(
                             returns, benchmark=benchmark,
-                            output=temp_path, title="Backtest Analysis Report"
+                            output=temp_path, title="Performance Analysis Report"
                         )
 
                         with open(temp_path, 'r', encoding='utf-8') as f:
@@ -1472,7 +1476,7 @@ def main():
     # Footer
     st.markdown("""
     <div class="app-footer">
-        Built with Streamlit • Backtest Analysis v2.1
+        Built with Streamlit • Performance Analysis v2.1
     </div>
     """, unsafe_allow_html=True)
 
