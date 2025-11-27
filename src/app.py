@@ -907,6 +907,20 @@ def render_vix_explanation():
 def render_workflow_indicator():
     """Render the workflow step indicator."""
     current_step = get_workflow_step()
+
+    # Determine which steps are actually completed based on state
+    has_data = bool(st.session_state.backtests)
+    has_weights = has_data  # Weights are auto-configured when data is loaded
+    analysis_complete = st.session_state.analysis_complete
+
+    # Step completion status (independent of current tab)
+    step_completed = {
+        1: has_data,           # Upload is complete when data is loaded
+        2: has_data,           # Configure is complete when data exists (weights have defaults)
+        3: analysis_complete,  # Analyze is complete when analysis has run
+        4: analysis_complete,  # Results available after analysis
+    }
+
     steps = [
         ("1", "Upload Data"),
         ("2", "Configure"),
@@ -916,10 +930,14 @@ def render_workflow_indicator():
 
     step_items = []
     for i, (num, label) in enumerate(steps, 1):
-        if i < current_step:
+        # Determine status: completed only if step is done AND we're past it
+        is_completed = step_completed.get(i, False) and i < current_step
+        is_active = (i == current_step)
+
+        if is_completed:
             status = "completed"
             icon = "✓"
-        elif i == current_step:
+        elif is_active:
             status = "active"
             icon = num
         else:
