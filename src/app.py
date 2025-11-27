@@ -1633,10 +1633,21 @@ def render_export_tab():
             </div>
         """, unsafe_allow_html=True)
 
-        if st.session_state.portfolio:
-            portfolio_df = st.session_state.portfolio.data
+        if st.session_state.portfolio and st.session_state.strategy_returns is not None:
+            # Build export DataFrame with required format
+            strategy_returns = st.session_state.strategy_returns
+            benchmark_returns = st.session_state.benchmark_returns
+
+            # Create export DataFrame
+            export_df = pd.DataFrame({
+                "date": strategy_returns.index.strftime("%Y-%m-%d"),
+                "strategy_return": strategy_returns.values.astype(float),
+                "benchmark_return": benchmark_returns.values.astype(float) if benchmark_returns is not None else None,
+                "created_at": datetime.now().isoformat(),
+            })
+
             csv_buffer = io.StringIO()
-            portfolio_df.to_csv(csv_buffer, index=False)
+            export_df.to_csv(csv_buffer, index=False)
 
             st.download_button(
                 label="Download Portfolio Data (CSV)",
