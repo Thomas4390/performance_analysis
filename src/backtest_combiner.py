@@ -18,6 +18,13 @@ import pandas as pd
 
 from config import BACKTESTS_DIR
 
+# Import Numba-optimized functions if available
+try:
+    from metrics_numba import calculate_core_metrics
+    HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
+
 
 # =============================================================================
 # DATA CLASSES
@@ -74,20 +81,37 @@ class CombinedPortfolio:
         return self.final_equity / self.initial_capital - 1
 
     def calculate_metrics(self) -> PortfolioMetrics:
-        """Calculate portfolio performance metrics."""
+        """Calculate portfolio performance metrics using Numba if available."""
         returns = self.returns
         n_days = len(returns)
 
-        total_return = (1 + returns).prod() - 1
-        cagr = (1 + total_return) ** (252 / n_days) - 1
-        volatility = returns.std() * np.sqrt(252)
-        sharpe = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
+        if HAS_NUMBA:
+            # Use Numba-optimized calculations
+            returns_arr = returns.values.astype(np.float64)
+            (
+                total_return,
+                cagr,
+                volatility,
+                sharpe,
+                _sortino,
+                max_dd,
+                _win_rate,
+                _profit_factor,
+                _dd_peak_idx,
+                _dd_trough_idx,
+            ) = calculate_core_metrics(returns_arr, 252)
+        else:
+            # Fallback to pandas/numpy
+            total_return = (1 + returns).prod() - 1
+            cagr = (1 + total_return) ** (252 / n_days) - 1
+            volatility = returns.std() * np.sqrt(252)
+            sharpe = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
 
-        # Max drawdown
-        cumulative = (1 + returns).cumprod()
-        running_max = cumulative.cummax()
-        drawdown = (cumulative - running_max) / running_max
-        max_dd = drawdown.min()
+            # Max drawdown
+            cumulative = (1 + returns).cumprod()
+            running_max = cumulative.cummax()
+            drawdown = (cumulative - running_max) / running_max
+            max_dd = drawdown.min()
 
         return PortfolioMetrics(
             total_return=total_return,

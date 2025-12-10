@@ -32,7 +32,12 @@ except ImportError:
     HAS_QUANTSTATS = False
 
 try:
-    from metrics_numba import calculate_all_metrics, warmup as numba_warmup
+    from metrics_numba import (
+        calculate_all_metrics,
+        warmup as numba_warmup,
+        rolling_mean as numba_rolling_mean,
+        rolling_std as numba_rolling_std,
+    )
     HAS_NUMBA = True
     # Warmup Numba JIT on import
     numba_warmup()
@@ -398,7 +403,7 @@ class ReportGenerator:
         return fig
 
     def plot_rolling_metrics(self, window: int = 252) -> go.Figure:
-        """Plot rolling Sharpe ratio and volatility."""
+        """Plot rolling Sharpe ratio and volatility using Numba if available."""
         fig = make_subplots(
             rows=2, cols=1,
             shared_xaxes=True,
@@ -406,10 +411,28 @@ class ReportGenerator:
             vertical_spacing=0.1,
         )
 
-        # Rolling Sharpe
-        rolling_mean = self.strategy_returns.rolling(window).mean()
-        rolling_std = self.strategy_returns.rolling(window).std()
-        rolling_sharpe = (rolling_mean / rolling_std * np.sqrt(252)).dropna()
+        # Use Numba-optimized rolling calculations if available
+        if HAS_NUMBA:
+            returns_arr = self.strategy_returns.values.astype(np.float64)
+            rolling_mean_arr = numba_rolling_mean(returns_arr, window)
+            rolling_std_arr = numba_rolling_std(returns_arr, window)
+
+            # Calculate rolling Sharpe using vectorized operations
+            with np.errstate(divide='ignore', invalid='ignore'):
+                rolling_sharpe_arr = np.where(
+                    rolling_std_arr > 0,
+                    (rolling_mean_arr / rolling_std_arr) * np.sqrt(252),
+                    0.0
+                )
+
+            rolling_sharpe = pd.Series(rolling_sharpe_arr, index=self.strategy_returns.index).dropna()
+            rolling_vol = pd.Series(rolling_std_arr * np.sqrt(252) * 100, index=self.strategy_returns.index).dropna()
+        else:
+            # Fallback to pandas
+            rolling_mean = self.strategy_returns.rolling(window).mean()
+            rolling_std = self.strategy_returns.rolling(window).std()
+            rolling_sharpe = (rolling_mean / rolling_std * np.sqrt(252)).dropna()
+            rolling_vol = (rolling_std * np.sqrt(252) * 100).dropna()
 
         fig.add_trace(
             go.Scatter(x=rolling_sharpe.index, y=rolling_sharpe, name="Sharpe", line=dict(color=PLOT_COLORS_NAMED["primary"])),
@@ -419,7 +442,6 @@ class ReportGenerator:
         fig.add_hline(y=1, line_dash="dot", line_color="green", row=1, col=1)
 
         # Rolling Volatility
-        rolling_vol = (rolling_std * np.sqrt(252) * 100).dropna()
         fig.add_trace(
             go.Scatter(x=rolling_vol.index, y=rolling_vol, name="Volatility", line=dict(color=PLOT_COLORS_NAMED["secondary"])),
             row=2, col=1
