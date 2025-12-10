@@ -1896,6 +1896,33 @@ def render_vrp_tab():
 # EXPORT TAB
 # =============================================================================
 
+@st.cache_data
+def _prepare_portfolio_csv(strategy_returns_values, strategy_returns_index, benchmark_returns_values):
+    """Prepare portfolio CSV data (cached to avoid recomputation)."""
+    export_df = pd.DataFrame({
+        "date": pd.DatetimeIndex(strategy_returns_index).strftime("%Y-%m-%d"),
+        "strategy_return": strategy_returns_values.astype(float),
+        "benchmark_return": benchmark_returns_values.astype(float) if benchmark_returns_values is not None else None,
+    })
+    csv_buffer = io.StringIO()
+    export_df.to_csv(csv_buffer, index=False)
+    return csv_buffer.getvalue()
+
+
+@st.cache_data
+def _prepare_metrics_json(strategy_returns_values, strategy_returns_index, benchmark_returns_values, benchmark_returns_index):
+    """Prepare metrics JSON data (cached to avoid recomputation)."""
+    # Reconstruct Series for ReportGenerator
+    strategy_returns = pd.Series(strategy_returns_values, index=pd.DatetimeIndex(strategy_returns_index))
+    benchmark_returns = None
+    if benchmark_returns_values is not None and benchmark_returns_index is not None:
+        benchmark_returns = pd.Series(benchmark_returns_values, index=pd.DatetimeIndex(benchmark_returns_index))
+
+    report_gen = ReportGenerator(strategy_returns, benchmark_returns)
+    metrics = report_gen.calculate_metrics()
+    return pd.Series(metrics.to_dict()).to_json(indent=2)
+
+
 def render_export_tab():
     """Render the export tab."""
     if not st.session_state.analysis_complete:
@@ -1925,40 +1952,39 @@ def render_export_tab():
         """, unsafe_allow_html=True)
 
         if st.session_state.portfolio and st.session_state.strategy_returns is not None:
-            # Build export DataFrame with required format
             strategy_returns = st.session_state.strategy_returns
             benchmark_returns = st.session_state.benchmark_returns
 
-            # Create export DataFrame
-            export_df = pd.DataFrame({
-                "date": strategy_returns.index.strftime("%Y-%m-%d"),
-                "strategy_return": strategy_returns.values.astype(float),
-                "benchmark_return": benchmark_returns.values.astype(float) if benchmark_returns is not None else None,
-                "created_at": datetime.now().isoformat(),
-            })
-
-            csv_buffer = io.StringIO()
-            export_df.to_csv(csv_buffer, index=False)
+            # Use cached CSV preparation
+            csv_data = _prepare_portfolio_csv(
+                strategy_returns.values,
+                strategy_returns.index.values,
+                benchmark_returns.values if benchmark_returns is not None else None,
+            )
 
             st.download_button(
                 label="Download Portfolio Data (CSV)",
-                data=csv_buffer.getvalue(),
+                data=csv_data,
                 file_name="combined_portfolio.csv",
                 mime="text/csv",
                 width="stretch",
             )
 
         if st.session_state.strategy_returns is not None:
-            report_gen = ReportGenerator(
-                st.session_state.strategy_returns,
-                st.session_state.benchmark_returns,
+            strategy_returns = st.session_state.strategy_returns
+            benchmark_returns = st.session_state.benchmark_returns
+
+            # Use cached metrics preparation
+            metrics_json = _prepare_metrics_json(
+                strategy_returns.values,
+                strategy_returns.index.values,
+                benchmark_returns.values if benchmark_returns is not None else None,
+                benchmark_returns.index.values if benchmark_returns is not None else None,
             )
-            metrics = report_gen.calculate_metrics()
-            metrics_dict = metrics.to_dict()
 
             st.download_button(
                 label="Download Metrics (JSON)",
-                data=pd.Series(metrics_dict).to_json(indent=2),
+                data=metrics_json,
                 file_name="performance_metrics.json",
                 mime="application/json",
                 width="stretch",
