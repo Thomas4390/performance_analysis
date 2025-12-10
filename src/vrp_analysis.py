@@ -30,7 +30,10 @@ from config import PLOT_TEMPLATE, PLOT_COLORS
 
 # Import Numba-optimized functions if available
 try:
-    from metrics_numba import rolling_std as numba_rolling_std
+    from metrics_numba import (
+        rolling_std as numba_rolling_std,
+        rolling_mean as numba_rolling_mean,
+    )
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False
@@ -300,7 +303,7 @@ class VRPAnalyzer:
             rows=2, cols=1,
             shared_xaxes=True,
             subplot_titles=("VIX vs Realized Volatility", "Volatility Risk Premium (VRP)"),
-            vertical_spacing=0.12,
+            vertical_spacing=0.15,
             row_heights=[0.5, 0.5],
         )
 
@@ -356,31 +359,40 @@ class VRPAnalyzer:
         # Add zero line
         fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
 
-        # Add mean VRP line
+        # Add mean VRP line with annotation positioned to avoid overlap
         mean_vrp = df["vrp"].mean()
         fig.add_hline(
             y=mean_vrp,
             line_dash="dot",
             line_color="purple",
-            annotation_text=f"Mean: {mean_vrp:.1f}",
+            annotation=dict(
+                text=f"Mean: {mean_vrp:.1f}%",
+                xanchor="right",
+                x=0.99,
+                font=dict(color="purple", size=11),
+            ),
             row=2, col=1,
         )
 
         fig.update_layout(
-            height=600,
+            height=650,
             title=dict(
                 text="Volatility Risk Premium Analysis",
-                y=0.97,
+                y=0.98,
+                x=0.5,
+                xanchor="center",
             ),
             template=PLOT_TEMPLATE,
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=1.02,
+                y=1.06,
                 xanchor="center",
                 x=0.5,
+                bgcolor="rgba(255, 255, 255, 0.8)",
             ),
             hovermode="x unified",
+            margin=dict(t=100, b=50),
         )
 
         fig.update_yaxes(title_text="Volatility (%)", row=1, col=1)
@@ -413,19 +425,49 @@ class VRPAnalyzer:
             nbinsx=50,
         ))
 
-        # Add vertical lines for mean and current
-        fig.add_vline(x=vrp.mean(), line_dash="dash", line_color="purple",
-                      annotation_text=f"Mean: {vrp.mean():.1f}")
-        fig.add_vline(x=vrp.iloc[-1], line_dash="dot", line_color="black",
-                      annotation_text=f"Current: {vrp.iloc[-1]:.1f}")
+        # Add vertical lines for mean and current with better positioning
+        fig.add_vline(
+            x=vrp.mean(),
+            line_dash="dash",
+            line_color="purple",
+            annotation=dict(
+                text=f"Mean: {vrp.mean():.1f}%",
+                yanchor="bottom",
+                y=1.02,
+                font=dict(color="purple", size=11),
+                showarrow=False,
+            ),
+        )
+        fig.add_vline(
+            x=vrp.iloc[-1],
+            line_dash="dot",
+            line_color="black",
+            annotation=dict(
+                text=f"Current: {vrp.iloc[-1]:.1f}%",
+                yanchor="bottom",
+                y=0.92,
+                font=dict(color="black", size=11),
+                showarrow=False,
+            ),
+        )
         fig.add_vline(x=0, line_dash="solid", line_color="gray", line_width=2)
 
         fig.update_layout(
-            title="VRP Distribution",
+            title=dict(
+                text="VRP Distribution",
+                y=0.95,
+            ),
             xaxis_title="VRP (%)",
             yaxis_title="Frequency",
             barmode="overlay",
             template=PLOT_TEMPLATE,
+            margin=dict(t=80),
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="right",
+                x=0.99,
+            ),
         )
 
         return fig
@@ -439,29 +481,81 @@ class VRPAnalyzer:
         """
         stats = self.calculate_stats()
 
+        # Determine color based on VRP level
+        if stats.current_vrp > 6:
+            bar_color = "#2ca02c"  # Green for high positive
+            status = "Favorable"
+        elif stats.current_vrp > 0:
+            bar_color = "#1f77b4"  # Blue for moderate positive
+            status = "Moderate"
+        else:
+            bar_color = "#d62728"  # Red for negative
+            status = "Caution"
+
+        # Create a cleaner gauge range
+        gauge_min = min(stats.min_vrp - 2, -10)
+        gauge_max = max(stats.max_vrp + 2, 15)
+
         fig = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=stats.current_vrp,
-            delta={"reference": stats.mean_vrp, "relative": False},
-            title={"text": f"Current VRP<br><span style='font-size:0.8em;color:gray'>Percentile: {stats.current_percentile:.0f}%</span>"},
+            number={
+                "suffix": "%",
+                "font": {"size": 36, "color": bar_color},
+            },
+            delta={
+                "reference": stats.mean_vrp,
+                "relative": False,
+                "suffix": "%",
+                "increasing": {"color": "#2ca02c"},
+                "decreasing": {"color": "#d62728"},
+            },
+            title={
+                "text": f"<b>Current VRP</b><br><span style='font-size:14px;color:gray'>Percentile: {stats.current_percentile:.0f}% | {status}</span>",
+                "font": {"size": 16},
+            },
             gauge={
-                "axis": {"range": [stats.min_vrp - 2, stats.max_vrp + 2]},
-                "bar": {"color": "#1f77b4"},
+                "axis": {
+                    "range": [gauge_min, gauge_max],
+                    "tickwidth": 2,
+                    "tickcolor": "gray",
+                    "ticksuffix": "%",
+                },
+                "bar": {"color": bar_color, "thickness": 0.7},
+                "bgcolor": "white",
+                "borderwidth": 2,
+                "bordercolor": "gray",
                 "steps": [
-                    {"range": [stats.min_vrp - 2, 0], "color": "rgba(214, 39, 40, 0.3)"},
-                    {"range": [0, stats.max_vrp + 2], "color": "rgba(44, 160, 44, 0.3)"},
+                    {"range": [gauge_min, -5], "color": "rgba(214, 39, 40, 0.4)"},
+                    {"range": [-5, 0], "color": "rgba(255, 127, 14, 0.3)"},
+                    {"range": [0, 3], "color": "rgba(188, 189, 34, 0.3)"},
+                    {"range": [3, 6], "color": "rgba(44, 160, 44, 0.3)"},
+                    {"range": [6, 10], "color": "rgba(31, 119, 180, 0.3)"},
+                    {"range": [10, gauge_max], "color": "rgba(148, 103, 189, 0.3)"},
                 ],
                 "threshold": {
-                    "line": {"color": "purple", "width": 4},
-                    "thickness": 0.75,
+                    "line": {"color": "purple", "width": 3},
+                    "thickness": 0.8,
                     "value": stats.mean_vrp,
                 },
             },
         ))
 
+        # Add annotation for mean
+        fig.add_annotation(
+            x=0.5,
+            y=-0.15,
+            text=f"Historical Mean: {stats.mean_vrp:.1f}%",
+            showarrow=False,
+            font=dict(size=12, color="purple"),
+            xref="paper",
+            yref="paper",
+        )
+
         fig.update_layout(
-            height=300,
+            height=350,
             template=PLOT_TEMPLATE,
+            margin=dict(t=80, b=60, l=30, r=30),
         )
 
         return fig
@@ -647,6 +741,8 @@ class VRPAnalyzer:
         """
         Plot rolling VRP statistics.
 
+        Uses Numba-optimized rolling calculations when available.
+
         Args:
             window: Rolling window size.
 
@@ -654,9 +750,17 @@ class VRPAnalyzer:
             Plotly figure.
         """
         df = self._vrp_df
+        vrp_arr = df["vrp"].values.astype(np.float64)
 
-        rolling_mean = df["vrp"].rolling(window).mean()
-        rolling_std = df["vrp"].rolling(window).std()
+        # Use Numba-optimized rolling calculations if available
+        if HAS_NUMBA:
+            rolling_mean_arr = numba_rolling_mean(vrp_arr, window)
+            rolling_std_arr = numba_rolling_std(vrp_arr, window)
+            rolling_mean = pd.Series(rolling_mean_arr, index=df.index)
+            rolling_std = pd.Series(rolling_std_arr, index=df.index)
+        else:
+            rolling_mean = df["vrp"].rolling(window).mean()
+            rolling_std = df["vrp"].rolling(window).std()
 
         fig = go.Figure()
 
@@ -664,9 +768,9 @@ class VRPAnalyzer:
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df["vrp"],
-            name="VRP",
+            name="Daily VRP",
             line=dict(color="#1f77b4", width=1),
-            opacity=0.5,
+            opacity=0.4,
         ))
 
         # Rolling mean
@@ -677,32 +781,44 @@ class VRPAnalyzer:
             line=dict(color="#d62728", width=2),
         ))
 
-        # Rolling bands
+        # Rolling bands (upper)
         fig.add_trace(go.Scatter(
             x=rolling_mean.index,
             y=rolling_mean + 2 * rolling_std,
-            name="+2 Std",
-            line=dict(color="gray", width=1, dash="dot"),
-            showlegend=False,
+            name="+2 Std Band",
+            line=dict(color="rgba(128, 128, 128, 0.5)", width=1, dash="dot"),
+            showlegend=True,
         ))
+        # Rolling bands (lower with fill)
         fig.add_trace(go.Scatter(
             x=rolling_mean.index,
             y=rolling_mean - 2 * rolling_std,
-            name="-2 Std",
-            line=dict(color="gray", width=1, dash="dot"),
+            name="-2 Std Band",
+            line=dict(color="rgba(128, 128, 128, 0.5)", width=1, dash="dot"),
             fill="tonexty",
-            fillcolor="rgba(128, 128, 128, 0.2)",
+            fillcolor="rgba(128, 128, 128, 0.15)",
             showlegend=False,
         ))
 
-        fig.add_hline(y=0, line_dash="dash", line_color="gray")
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
 
         fig.update_layout(
-            title=f"Rolling VRP ({window}-Day Window)",
+            title=dict(
+                text=f"Rolling VRP ({window}-Day Window)",
+                y=0.95,
+            ),
             xaxis_title="Date",
             yaxis_title="VRP (%)",
             template=PLOT_TEMPLATE,
             hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+            ),
+            margin=dict(t=80),
         )
 
         return fig
