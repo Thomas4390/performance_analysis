@@ -1089,7 +1089,7 @@ def render_sidebar():
                     format_func=lambda x: "Select a strategy..." if x == "" else x,
                     label_visibility="collapsed",
                 )
-                if selected_backtest and st.button("Load Strategy", type="primary", use_container_width=True):
+                if selected_backtest and st.button("Load Strategy", type="primary", width="stretch"):
                     try:
                         df = loader.load(selected_backtest)
                         st.session_state.backtests[selected_backtest] = df
@@ -1146,7 +1146,7 @@ def render_sidebar():
                     end_date = df['date'].max().strftime('%Y-%m-%d')
                     st.caption(f"{start_date} → {end_date}")
 
-                    if st.button("Remove", key=f"remove_{name}", type="secondary", use_container_width=True):
+                    if st.button("Remove", key=f"remove_{name}", type="secondary", width="stretch"):
                         del st.session_state.backtests[name]
                         if name in st.session_state.loaded_files:
                             st.session_state.loaded_files.discard(name)
@@ -1179,7 +1179,7 @@ def render_sidebar():
 
         # Reset button
         st.markdown("---")
-        if st.button("Reset All", type="secondary", use_container_width=True):
+        if st.button("Reset All", type="secondary", width="stretch"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
@@ -1408,7 +1408,7 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
         )
         st.session_state.use_aligned_data = use_aligned
     with col3:
-        run_analysis = st.button("Run Analysis", type="primary", use_container_width=True)
+        run_analysis = st.button("Run Analysis", type="primary", width="stretch")
 
     if run_analysis:
         with st.spinner("Running analysis..."):
@@ -1555,29 +1555,29 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
 
         with viz_tabs[0]:
             st.caption("💡 Cumulative returns show the growth of $1 invested over time. Compare your strategy vs benchmark.")
-            st.plotly_chart(report_gen.plot_cumulative_returns(), use_container_width=True)
+            st.plotly_chart(report_gen.plot_cumulative_returns(), width="stretch")
             # Use cached comparison plot
             st.caption("💡 Individual strategy comparison shows how each component contributes to the portfolio.")
             if st.session_state.cached_comparison_plot is not None:
-                st.plotly_chart(st.session_state.cached_comparison_plot, use_container_width=True)
+                st.plotly_chart(st.session_state.cached_comparison_plot, width="stretch")
             else:
-                st.plotly_chart(create_comparison_plot(st.session_state.backtests, portfolio), use_container_width=True)
+                st.plotly_chart(create_comparison_plot(st.session_state.backtests, portfolio), width="stretch")
 
         with viz_tabs[1]:
             st.caption("💡 Drawdown measures peak-to-trough declines. Shallower and shorter drawdowns indicate better risk management.")
-            st.plotly_chart(report_gen.plot_drawdown(), use_container_width=True)
+            st.plotly_chart(report_gen.plot_drawdown(), width="stretch")
 
         with viz_tabs[2]:
             st.caption("💡 Return distribution shows the frequency of different return levels. A normal distribution centered right of zero is ideal.")
             c1, c2 = st.columns(2)
             with c1:
-                st.plotly_chart(report_gen.plot_returns_distribution(), use_container_width=True)
+                st.plotly_chart(report_gen.plot_returns_distribution(), width="stretch")
             with c2:
-                st.plotly_chart(report_gen.plot_monthly_returns_table(), use_container_width=True)
+                st.plotly_chart(report_gen.plot_monthly_returns_table(), width="stretch")
 
         with viz_tabs[3]:
             st.caption("💡 Rolling metrics show how performance evolves over time. Consistent metrics indicate stable strategy behavior.")
-            st.plotly_chart(report_gen.plot_rolling_metrics(), use_container_width=True)
+            st.plotly_chart(report_gen.plot_rolling_metrics(), width="stretch")
 
 
 # =============================================================================
@@ -1659,7 +1659,7 @@ def render_vix_tab():
         "Total Return (%)", "Bench Return (%)", "Alpha (%)"
     ]
     display_cols = ["Regime", "Days", "Ann. Return (%)", "Ann. Vol (%)", "Sharpe", "Win Rate (%)", "Max DD (%)"]
-    st.dataframe(display_df[display_cols], use_container_width=True, hide_index=True)
+    st.dataframe(display_df[display_cols], width="stretch", hide_index=True)
 
     st.markdown("---")
 
@@ -1668,19 +1668,19 @@ def render_vix_tab():
 
     with viz_tabs[0]:
         st.caption("💡 Cumulative returns with VIX regime backgrounds. Colors indicate market volatility environment.")
-        st.plotly_chart(vix_analyzer.plot_cumulative_with_regimes(), use_container_width=True)
+        st.plotly_chart(vix_analyzer.plot_cumulative_with_regimes(), width="stretch")
 
     with viz_tabs[1]:
         st.caption("💡 Compare return distributions across different VIX environments.")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(vix_analyzer.plot_returns_by_regime(), use_container_width=True)
+            st.plotly_chart(vix_analyzer.plot_returns_by_regime(), width="stretch")
         with c2:
-            st.plotly_chart(vix_analyzer.plot_regime_distribution(), use_container_width=True)
+            st.plotly_chart(vix_analyzer.plot_regime_distribution(), width="stretch")
 
     with viz_tabs[2]:
         st.caption("💡 Visualize the relationship between VIX levels and your strategy returns over time.")
-        st.plotly_chart(vix_analyzer.plot_vix_vs_returns(), use_container_width=True)
+        st.plotly_chart(vix_analyzer.plot_vix_vs_returns(), width="stretch")
 
     with viz_tabs[3]:
         st.caption("💡 Rolling performance metrics overlaid with VIX regime periods.")
@@ -1689,7 +1689,7 @@ def render_vix_tab():
             strategy_vals, strategy_idx, vix_vals, vix_idx,
             benchmark_vals, benchmark_idx, window=20
         )
-        st.plotly_chart(rolling_fig, use_container_width=True)
+        st.plotly_chart(rolling_fig, width="stretch")
 
 
 # =============================================================================
@@ -1812,16 +1812,16 @@ def render_vrp_tab():
 
     with viz_tabs[0]:
         st.markdown("### VIX vs Realized Volatility")
-        st.plotly_chart(vrp_analyzer.plot_vrp_timeseries(), use_container_width=True)
+        st.plotly_chart(vrp_analyzer.plot_vrp_timeseries(), width="stretch")
 
     with viz_tabs[1]:
         col1, col2 = st.columns([2, 1])
         with col1:
             st.markdown("### VRP Distribution")
-            st.plotly_chart(vrp_analyzer.plot_vrp_distribution(), use_container_width=True)
+            st.plotly_chart(vrp_analyzer.plot_vrp_distribution(), width="stretch")
         with col2:
             st.markdown("### Current VRP Gauge")
-            st.plotly_chart(vrp_analyzer.plot_vrp_percentile(), use_container_width=True)
+            st.plotly_chart(vrp_analyzer.plot_vrp_percentile(), width="stretch")
 
     with viz_tabs[2]:
         st.markdown("### Rolling VRP Statistics")
@@ -1831,7 +1831,7 @@ def render_vrp_tab():
                 windows=(20, 40, 60, 80, 100, 120),
                 default_window=60,
             ),
-            use_container_width=True,
+            width="stretch",
         )
 
     with viz_tabs[3]:
@@ -1840,7 +1840,7 @@ def render_vrp_tab():
         This chart shows your strategy's cumulative performance with VRP regime backgrounds.
         Green areas indicate positive VRP (favorable for vol sellers), while red areas indicate negative VRP.
         """)
-        st.plotly_chart(vrp_analyzer.plot_vrp_vs_strategy_performance(), use_container_width=True)
+        st.plotly_chart(vrp_analyzer.plot_vrp_vs_strategy_performance(), width="stretch")
 
     with viz_tabs[4]:
         st.markdown("### Performance by VRP Regime")
@@ -1849,11 +1849,11 @@ def render_vrp_tab():
 
         with col1:
             st.markdown("#### Time in Each Regime")
-            st.plotly_chart(vrp_analyzer.plot_regime_distribution_pie(), use_container_width=True)
+            st.plotly_chart(vrp_analyzer.plot_regime_distribution_pie(), width="stretch")
 
         with col2:
             st.markdown("#### Strategy Returns by Regime")
-            st.plotly_chart(vrp_analyzer.plot_regime_performance_bars(), use_container_width=True)
+            st.plotly_chart(vrp_analyzer.plot_regime_performance_bars(), width="stretch")
 
         # Regime stats table
         regime_stats = vrp_analyzer.calculate_regime_stats()
@@ -1880,7 +1880,7 @@ def render_vrp_tab():
                     "Sharpe": "{:.2f}",
                     "Win Rate (%)": "{:.1f}",
                 }).background_gradient(subset=["Mean VRP"], cmap="RdYlGn"),
-                use_container_width=True,
+                width="stretch",
             )
 
     with viz_tabs[5]:
@@ -1889,7 +1889,7 @@ def render_vrp_tab():
         This scatter plot shows the relationship between VRP and the next day's strategy return.
         A positive correlation would suggest higher VRP leads to better strategy performance.
         """)
-        st.plotly_chart(vrp_analyzer.plot_scatter_vrp_vs_returns(), use_container_width=True)
+        st.plotly_chart(vrp_analyzer.plot_scatter_vrp_vs_returns(), width="stretch")
 
 
 # =============================================================================
@@ -1945,7 +1945,7 @@ def render_export_tab():
                 data=csv_buffer.getvalue(),
                 file_name="combined_portfolio.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
             )
 
         if st.session_state.strategy_returns is not None:
@@ -1961,7 +1961,7 @@ def render_export_tab():
                 data=pd.Series(metrics_dict).to_json(indent=2),
                 file_name="performance_metrics.json",
                 mime="application/json",
-                use_container_width=True,
+                width="stretch",
             )
 
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1985,7 +1985,7 @@ def render_export_tab():
                 help="Include SPY or selected benchmark in the report.",
             )
 
-            if st.button("Generate Quantstats Report", type="primary", use_container_width=True):
+            if st.button("Generate Quantstats Report", type="primary", width="stretch"):
                 try:
                     import tempfile
                     import os
@@ -2032,7 +2032,7 @@ def render_export_tab():
                     data=st.session_state.quantstats_report,
                     file_name="quantstats_report.html",
                     mime="text/html",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 with st.expander("Preview Report"):
