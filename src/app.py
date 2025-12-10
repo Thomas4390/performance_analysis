@@ -1112,6 +1112,7 @@ def render_sidebar():
         )
 
         if uploaded_files:
+            new_files_loaded = False
             for file in uploaded_files:
                 # Use file name as unique identifier
                 name = Path(file.name).stem
@@ -1121,6 +1122,10 @@ def render_sidebar():
                         st.session_state.backtests[name] = df
                         st.session_state.loaded_files.add(file.name)
                         st.toast(f"Loaded: {name}", icon="✅")
+                        new_files_loaded = True
+            # Rerun to update the status badge if new files were loaded
+            if new_files_loaded:
+                st.rerun()
 
         # Loaded backtests list
         if st.session_state.backtests:
