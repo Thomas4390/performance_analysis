@@ -823,6 +823,152 @@ class VRPAnalyzer:
 
         return fig
 
+    def plot_rolling_vrp_interactive(
+        self,
+        windows: tuple[int, ...] = (20, 40, 60, 80, 100, 120),
+        default_window: int = 60,
+    ) -> go.Figure:
+        """
+        Plot rolling VRP with interactive Plotly slider (no Streamlit rerun).
+
+        Pre-computes all window sizes and uses Plotly's slider to switch between them
+        client-side, avoiding Streamlit reruns.
+
+        Args:
+            windows: Tuple of window sizes to pre-compute.
+            default_window: Default window to display initially.
+
+        Returns:
+            Plotly figure with interactive slider.
+        """
+        df = self._vrp_df
+        vrp_arr = df["vrp"].values.astype(np.float64)
+        dates = df.index
+
+        # Pre-compute rolling stats for all windows
+        rolling_data = {}
+        for window in windows:
+            if HAS_NUMBA:
+                rolling_mean_arr = numba_rolling_mean(vrp_arr, window)
+                rolling_std_arr = numba_rolling_std(vrp_arr, window)
+            else:
+                rolling_mean_arr = df["vrp"].rolling(window).mean().values
+                rolling_std_arr = df["vrp"].rolling(window).std().values
+
+            rolling_data[window] = {
+                "mean": rolling_mean_arr,
+                "std": rolling_std_arr,
+                "upper": rolling_mean_arr + 2 * rolling_std_arr,
+                "lower": rolling_mean_arr - 2 * rolling_std_arr,
+            }
+
+        fig = go.Figure()
+
+        # Add daily VRP (always visible)
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=df["vrp"],
+            name="Daily VRP",
+            line=dict(color="#1f77b4", width=1),
+            opacity=0.4,
+            visible=True,
+        ))
+
+        # Add traces for each window (4 traces per window: mean, upper, lower, fill)
+        # Only the default window's traces are visible initially
+        traces_per_window = 3  # mean, upper, lower (lower has fill)
+
+        for window in windows:
+            is_default = window == default_window
+            data = rolling_data[window]
+
+            # Rolling mean
+            fig.add_trace(go.Scatter(
+                x=dates,
+                y=data["mean"],
+                name=f"{window}d Mean",
+                line=dict(color="#d62728", width=2),
+                visible=is_default,
+            ))
+
+            # Upper band
+            fig.add_trace(go.Scatter(
+                x=dates,
+                y=data["upper"],
+                name="+2σ",
+                line=dict(color="rgba(128, 128, 128, 0.5)", width=1, dash="dot"),
+                visible=is_default,
+                showlegend=False,
+            ))
+
+            # Lower band with fill
+            fig.add_trace(go.Scatter(
+                x=dates,
+                y=data["lower"],
+                name="-2σ",
+                line=dict(color="rgba(128, 128, 128, 0.5)", width=1, dash="dot"),
+                fill="tonexty",
+                fillcolor="rgba(128, 128, 128, 0.15)",
+                visible=is_default,
+                showlegend=False,
+            ))
+
+        # Create slider steps
+        steps = []
+        for i, window in enumerate(windows):
+            # Visibility: trace 0 (daily VRP) always visible
+            # Then for each window, 3 traces
+            visibility = [True]  # Daily VRP always visible
+
+            for j, w in enumerate(windows):
+                is_this_window = (w == window)
+                visibility.extend([is_this_window] * traces_per_window)
+
+            step = dict(
+                method="update",
+                args=[
+                    {"visible": visibility},
+                    {"title": f"Rolling VRP ({window}-Day Window)"}
+                ],
+                label=str(window),
+            )
+            steps.append(step)
+
+        # Find default step index
+        default_idx = windows.index(default_window) if default_window in windows else 0
+
+        sliders = [dict(
+            active=default_idx,
+            currentvalue={"prefix": "Window: ", "suffix": " days"},
+            pad={"t": 50},
+            steps=steps,
+        )]
+
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+
+        fig.update_layout(
+            sliders=sliders,
+            title=dict(
+                text=f"Rolling VRP ({default_window}-Day Window)",
+                y=0.95,
+            ),
+            xaxis_title="Date",
+            yaxis_title="VRP (%)",
+            template=PLOT_TEMPLATE,
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+            ),
+            margin=dict(t=100, b=80),
+            height=550,
+        )
+
+        return fig
+
     def plot_scatter_vrp_vs_returns(self) -> go.Figure:
         """
         Plot scatter of VRP vs next-day strategy returns.

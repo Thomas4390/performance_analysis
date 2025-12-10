@@ -1825,8 +1825,14 @@ def render_vrp_tab():
 
     with viz_tabs[2]:
         st.markdown("### Rolling VRP Statistics")
-        rolling_window = st.slider("Rolling Window (days)", 20, 120, 60, key="vrp_rolling_window")
-        st.plotly_chart(vrp_analyzer.plot_rolling_vrp(window=rolling_window), use_container_width=True)
+        st.markdown("*Use the slider below the chart to change the rolling window - no page reload needed.*")
+        st.plotly_chart(
+            vrp_analyzer.plot_rolling_vrp_interactive(
+                windows=(20, 40, 60, 80, 100, 120),
+                default_window=60,
+            ),
+            use_container_width=True,
+        )
 
     with viz_tabs[3]:
         st.markdown("### Strategy Performance vs VRP Regimes")
