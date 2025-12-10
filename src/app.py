@@ -25,6 +25,7 @@ import streamlit as st
 
 from config import (
     CACHE_DIR,
+    BACKTESTS_DIR,
     BENCHMARK_TICKERS,
     PLOT_COLORS,
     PLOT_TEMPLATE,
@@ -34,6 +35,7 @@ from backtest_loader import BacktestLoader
 from backtest_combiner import BacktestCombiner, CombinedPortfolio
 from market_data import MarketDataDownloader
 from vix_analysis import VixRegimeAnalyzer
+from vrp_analysis import VRPAnalyzer, DEFAULT_VRP_REGIMES
 from report_generator import ReportGenerator
 
 # Warmup Numba JIT compilation at module load
@@ -207,6 +209,39 @@ VIX_REGIME_DEFINITIONS = {
         "name": "Extreme VIX (>30)",
         "description": "Crisis mode. Panic selling, liquidity concerns, extreme moves.",
         "color": "#8e44ad",
+    },
+}
+
+VRP_REGIME_DEFINITIONS = {
+    "very_negative": {
+        "name": "Very Negative (<-5)",
+        "description": "IV much lower than RV - favor long volatility strategies.",
+        "color": "#d62728",
+    },
+    "negative": {
+        "name": "Negative (-5 to 0)",
+        "description": "IV slightly lower than RV - caution for vol sellers.",
+        "color": "#ff7f0e",
+    },
+    "low_positive": {
+        "name": "Low Positive (0 to 3)",
+        "description": "Mild premium - small edge for vol sellers.",
+        "color": "#bcbd22",
+    },
+    "normal": {
+        "name": "Normal (3 to 6)",
+        "description": "Typical premium - favorable for vol sellers.",
+        "color": "#2ca02c",
+    },
+    "high": {
+        "name": "High (6 to 10)",
+        "description": "Rich premium - strong edge for vol sellers.",
+        "color": "#1f77b4",
+    },
+    "very_high": {
+        "name": "Very High (>10)",
+        "description": "Extreme premium - very favorable but often during market stress.",
+        "color": "#9467bd",
     },
 }
 
@@ -726,6 +761,7 @@ def init_session_state():
         "benchmark_returns": None,
         "benchmark_ticker": "SPY",
         "vix": None,
+        "spy_returns": None,  # For VRP calculation
         "analysis_complete": False,
         "quantstats_report": None,
         "use_aligned_data": True,
@@ -734,6 +770,9 @@ def init_session_state():
         "cached_aligned_metrics": None,
         "cached_report_gen": None,
         "cached_comparison_plot": None,
+        "cached_vrp_analyzer": None,
+        # Track loaded backtest files
+        "loaded_files": set(),
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -757,12 +796,20 @@ def download_market_data(
     benchmark_ticker: str,
     start_date: datetime,
     end_date: datetime,
-) -> tuple[pd.Series, pd.Series]:
-    """Download and cache market data."""
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Download and cache market data including SPY for VRP calculation."""
     downloader = MarketDataDownloader(cache_dir=CACHE_DIR)
     benchmark = downloader.download_benchmark(benchmark_ticker, start_date, end_date)
     vix_data = downloader.download_vix(start_date, end_date)
-    return benchmark.returns, vix_data.data.set_index("date")["vix"]
+
+    # Always download SPY for VRP calculation
+    if benchmark_ticker == "SPY":
+        spy_returns = benchmark.returns
+    else:
+        spy_data = downloader.download_benchmark("SPY", start_date, end_date)
+        spy_returns = spy_data.returns
+
+    return benchmark.returns, vix_data.data.set_index("date")["vix"], spy_returns
 
 
 @st.cache_resource(ttl=300)
@@ -1027,8 +1074,35 @@ def render_sidebar():
 
         st.markdown("---")
 
-        # File upload
-        st.markdown("### Upload Files")
+        # Load from data/backtests folder
+        st.markdown("### Load Strategy")
+        loader = BacktestLoader(BACKTESTS_DIR)
+        available_backtests = loader.list_backtests()
+
+        if available_backtests:
+            # Filter out already loaded backtests
+            not_loaded = [b for b in available_backtests if b not in st.session_state.backtests]
+            if not_loaded:
+                selected_backtest = st.selectbox(
+                    "Select from available strategies",
+                    options=[""] + not_loaded,
+                    format_func=lambda x: "Select a strategy..." if x == "" else x,
+                    label_visibility="collapsed",
+                )
+                if selected_backtest and st.button("Load Strategy", type="primary", use_container_width=True):
+                    try:
+                        df = loader.load(selected_backtest)
+                        st.session_state.backtests[selected_backtest] = df
+                        st.session_state.loaded_files.add(selected_backtest)
+                        st.toast(f"Loaded: {selected_backtest}", icon="✅")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error loading {selected_backtest}: {e}")
+            else:
+                st.info("All available strategies are loaded")
+
+        # File upload (alternative)
+        st.markdown("### Or Upload Files")
         uploaded_files = st.file_uploader(
             "Drag and drop strategy files",
             type=["ods", "xlsx", "xls", "csv"],
@@ -1039,18 +1113,20 @@ def render_sidebar():
 
         if uploaded_files:
             for file in uploaded_files:
-                if file.name not in [f"{k}.{file.name.split('.')[-1]}" for k in st.session_state.backtests.keys()]:
+                # Use file name as unique identifier
+                name = Path(file.name).stem
+                if name not in st.session_state.backtests:
                     df = parse_uploaded_file(file)
                     if df is not None:
-                        name = Path(file.name).stem
                         st.session_state.backtests[name] = df
+                        st.session_state.loaded_files.add(file.name)
                         st.toast(f"Loaded: {name}", icon="✅")
 
         # Loaded backtests list
         if st.session_state.backtests:
-            st.markdown("### Loaded Data")
+            st.markdown("### Loaded Strategies")
             for name, df in list(st.session_state.backtests.items()):
-                with st.expander(f"📊 {name}", expanded=False):
+                with st.expander(f"📊 {name}", expanded=True):
                     col1, col2 = st.columns(2)
                     with col1:
                         st.caption("Trading Days")
@@ -1067,6 +1143,8 @@ def render_sidebar():
 
                     if st.button("Remove", key=f"remove_{name}", type="secondary", use_container_width=True):
                         del st.session_state.backtests[name]
+                        if name in st.session_state.loaded_files:
+                            st.session_state.loaded_files.discard(name)
                         st.rerun()
 
         st.markdown("---")
@@ -1337,7 +1415,7 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
                 start_date = portfolio.data["date"].min()
                 end_date = portfolio.data["date"].max()
 
-                benchmark_returns, vix = download_market_data(benchmark_ticker, start_date, end_date)
+                benchmark_returns, vix, spy_returns = download_market_data(benchmark_ticker, start_date, end_date)
 
                 strategy_returns_full = portfolio.returns
                 st.session_state.strategy_returns_full = strategy_returns_full
@@ -1346,11 +1424,20 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
                     strategy_returns_full.index
                     .intersection(benchmark_returns.index)
                     .intersection(vix.index)
+                    .intersection(spy_returns.index)
                 )
 
                 st.session_state.strategy_returns = strategy_returns_full.reindex(common_idx)
                 st.session_state.benchmark_returns = benchmark_returns.reindex(common_idx)
                 st.session_state.vix = vix.reindex(common_idx)
+                st.session_state.spy_returns = spy_returns.reindex(common_idx)
+
+                # Create VRP analyzer
+                st.session_state.cached_vrp_analyzer = VRPAnalyzer(
+                    spy_returns=st.session_state.spy_returns,
+                    vix=st.session_state.vix,
+                    strategy_returns=st.session_state.strategy_returns,
+                )
 
                 # Pre-calculate and cache metrics
                 use_aligned = st.session_state.use_aligned_data
@@ -1601,6 +1688,200 @@ def render_vix_tab():
 
 
 # =============================================================================
+# VRP ANALYSIS TAB
+# =============================================================================
+
+def render_vrp_tab():
+    """Render the Volatility Risk Premium (VRP) analysis tab."""
+    if not st.session_state.analysis_complete:
+        st.markdown("""
+        <div class="info-box">
+            <div class="info-box-icon">⚠️</div>
+            <div class="info-box-content">
+                <div class="info-box-title">Analysis Required</div>
+                <p class="info-box-text">Please run the analysis first to view VRP analysis.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    vrp_analyzer = st.session_state.cached_vrp_analyzer
+    if vrp_analyzer is None:
+        st.error("VRP analyzer not available. Please re-run the analysis.")
+        return
+
+    # Header
+    st.markdown("""
+    <div class="section-header">
+        <div class="section-header-icon">📉</div>
+        <div>
+            <h2 class="section-title">Volatility Risk Premium Analysis</h2>
+            <p class="section-subtitle">Compare implied volatility (VIX) vs realized volatility to measure the VRP</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # VRP Explanation
+    with st.expander("What is the Volatility Risk Premium (VRP)?", expanded=False):
+        st.markdown("""
+        **Volatility Risk Premium (VRP)** is the difference between implied volatility (as measured by VIX)
+        and subsequently realized volatility. It represents the "premium" that options buyers pay for protection.
+
+        **Key Concepts:**
+        - **VRP = VIX - Realized Volatility**
+        - **Positive VRP (VIX > RV)**: Options are "expensive" - favorable for options sellers (~85% of time historically)
+        - **Negative VRP (VIX < RV)**: Options are "cheap" - favorable for options buyers
+
+        **Historical Context:**
+        - Long-term average VRP: ~4 volatility points since 1990
+        - Post-2020 average: ~6.5 points (exceptionally favorable for vol sellers)
+        - Positive VRP ~85% of the time historically
+
+        **Trading Implications:**
+        - High VRP = Strong tailwind for short volatility strategies
+        - Low/Negative VRP = Caution for vol sellers, opportunity for vol buyers
+        """)
+
+    # VRP Regime definitions
+    with st.expander("VRP Regime Definitions", expanded=False):
+        for key, regime in VRP_REGIME_DEFINITIONS.items():
+            st.markdown(f"""
+            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                <div style="width: 16px; height: 16px; background-color: {regime['color']}; border-radius: 4px; margin-right: 8px;"></div>
+                <strong>{regime['name']}</strong>: {regime['description']}
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Summary statistics
+    stats = vrp_analyzer.calculate_stats()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Current VRP</div>
+            <div class="stat-value {'positive' if stats.current_vrp > 0 else 'negative'}">{stats.current_vrp:+.1f}%</div>
+            <div class="metric-description">Percentile: {stats.current_percentile:.0f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Mean VRP</div>
+            <div class="stat-value">{stats.mean_vrp:.1f}%</div>
+            <div class="metric-description">Std: {stats.std_vrp:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">% Time VRP > 0</div>
+            <div class="stat-value positive">{stats.pct_positive:.1f}%</div>
+            <div class="metric-description">Favorable for vol sellers</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">VRP Range</div>
+            <div class="stat-value">{stats.min_vrp:.1f} to {stats.max_vrp:.1f}</div>
+            <div class="metric-description">Min to Max</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # VRP Charts
+    viz_tabs = st.tabs([
+        "📈 VRP Timeline",
+        "📊 Distribution",
+        "🔄 Rolling VRP",
+        "📉 VRP vs Performance",
+        "📋 Regime Analysis",
+        "🎯 VRP Scatter"
+    ])
+
+    with viz_tabs[0]:
+        st.markdown("### VIX vs Realized Volatility")
+        st.plotly_chart(vrp_analyzer.plot_vrp_timeseries(), use_container_width=True)
+
+    with viz_tabs[1]:
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.markdown("### VRP Distribution")
+            st.plotly_chart(vrp_analyzer.plot_vrp_distribution(), use_container_width=True)
+        with col2:
+            st.markdown("### Current VRP Gauge")
+            st.plotly_chart(vrp_analyzer.plot_vrp_percentile(), use_container_width=True)
+
+    with viz_tabs[2]:
+        st.markdown("### Rolling VRP Statistics")
+        rolling_window = st.slider("Rolling Window (days)", 20, 120, 60, key="vrp_rolling_window")
+        st.plotly_chart(vrp_analyzer.plot_rolling_vrp(window=rolling_window), use_container_width=True)
+
+    with viz_tabs[3]:
+        st.markdown("### Strategy Performance vs VRP Regimes")
+        st.markdown("""
+        This chart shows your strategy's cumulative performance with VRP regime backgrounds.
+        Green areas indicate positive VRP (favorable for vol sellers), while red areas indicate negative VRP.
+        """)
+        st.plotly_chart(vrp_analyzer.plot_vrp_vs_strategy_performance(), use_container_width=True)
+
+    with viz_tabs[4]:
+        st.markdown("### Performance by VRP Regime")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("#### Time in Each Regime")
+            st.plotly_chart(vrp_analyzer.plot_regime_distribution_pie(), use_container_width=True)
+
+        with col2:
+            st.markdown("#### Strategy Returns by Regime")
+            st.plotly_chart(vrp_analyzer.plot_regime_performance_bars(), use_container_width=True)
+
+        # Regime stats table
+        regime_stats = vrp_analyzer.calculate_regime_stats()
+        if not regime_stats.empty:
+            st.markdown("#### Detailed Regime Statistics")
+
+            # Format the table
+            display_cols = ["regime", "days", "pct_time", "mean_vrp", "mean_vix", "mean_rv"]
+            if "ann_return" in regime_stats.columns:
+                display_cols += ["ann_return", "sharpe", "win_rate"]
+
+            display_df = regime_stats[display_cols].copy()
+            display_df.columns = [
+                "Regime", "Days", "% Time", "Mean VRP", "Mean VIX", "Mean RV"
+            ] + (["Ann. Return (%)", "Sharpe", "Win Rate (%)"] if "ann_return" in regime_stats.columns else [])
+
+            st.dataframe(
+                display_df.style.format({
+                    "% Time": "{:.1f}",
+                    "Mean VRP": "{:.1f}",
+                    "Mean VIX": "{:.1f}",
+                    "Mean RV": "{:.1f}",
+                    "Ann. Return (%)": "{:+.1f}",
+                    "Sharpe": "{:.2f}",
+                    "Win Rate (%)": "{:.1f}",
+                }).background_gradient(subset=["Mean VRP"], cmap="RdYlGn"),
+                use_container_width=True,
+            )
+
+    with viz_tabs[5]:
+        st.markdown("### VRP vs Next-Day Strategy Return")
+        st.markdown("""
+        This scatter plot shows the relationship between VRP and the next day's strategy return.
+        A positive correlation would suggest higher VRP leads to better strategy performance.
+        """)
+        st.plotly_chart(vrp_analyzer.plot_scatter_vrp_vs_returns(), use_container_width=True)
+
+
+# =============================================================================
 # EXPORT TAB
 # =============================================================================
 
@@ -1765,7 +2046,7 @@ def main():
 
     benchmark_ticker, initial_capital = render_sidebar()
 
-    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "💾 Export"])
+    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "📉 VRP Analysis", "💾 Export"])
 
     with tabs[0]:
         render_upload_tab()
@@ -1776,12 +2057,14 @@ def main():
     with tabs[3]:
         render_vix_tab()
     with tabs[4]:
+        render_vrp_tab()
+    with tabs[5]:
         render_export_tab()
 
     # Footer
     st.markdown("""
     <div class="app-footer">
-        Built with Streamlit • Performance Analysis v2.1
+        Built with Streamlit • Performance Analysis v2.2
     </div>
     """, unsafe_allow_html=True)
 
