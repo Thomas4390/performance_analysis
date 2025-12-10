@@ -10,12 +10,10 @@ A comprehensive toolkit for analyzing QuantConnect backtests with:
 
 Project Structure:
     data/
-        raw/            - Original backtest files
-        intermediate/   - Processed parquet files
+        market/         - Market data (benchmarks, VIX)
+        backtests/      - Strategy backtest files (.ods, .xlsx)
         cache/          - Cached market data downloads
-    src/
-        reports/        - Generated reports
-        plots/          - Generated plot files
+    reports/            - Generated reports and plots
 """
 
 # Configuration and constants
@@ -23,8 +21,8 @@ from .config import (
     # Paths
     PROJECT_ROOT,
     DATA_DIR,
-    RAW_DATA_DIR,
-    INTERMEDIATE_DIR,
+    MARKET_DATA_DIR,
+    BACKTESTS_DIR,
     CACHE_DIR,
     REPORTS_DIR,
     PLOTS_DIR,
@@ -92,8 +90,8 @@ __all__ = [
     # Configuration
     "PROJECT_ROOT",
     "DATA_DIR",
-    "RAW_DATA_DIR",
-    "INTERMEDIATE_DIR",
+    "MARKET_DATA_DIR",
+    "BACKTESTS_DIR",
     "CACHE_DIR",
     "REPORTS_DIR",
     "PLOTS_DIR",

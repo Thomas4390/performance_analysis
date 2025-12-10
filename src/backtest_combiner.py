@@ -16,7 +16,7 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
-from config import INTERMEDIATE_DIR
+from config import BACKTESTS_DIR
 
 
 # =============================================================================
@@ -219,7 +219,7 @@ class BacktestCombiner:
     def save_combined(
         self,
         portfolio: CombinedPortfolio,
-        output_dir: Union[str, Path] = INTERMEDIATE_DIR,
+        output_dir: Union[str, Path] = BACKTESTS_DIR,
         filename: str = "combined_portfolio.parquet",
     ) -> Path:
         """
@@ -247,7 +247,7 @@ class BacktestCombiner:
 # =============================================================================
 
 def load_and_combine(
-    data_dir: Union[str, Path] = INTERMEDIATE_DIR,
+    data_dir: Union[str, Path] = BACKTESTS_DIR,
     weights: Optional[dict[str, float]] = None,
     initial_capital: float = 1_000_000,
 ) -> CombinedPortfolio:
@@ -289,7 +289,7 @@ def main():
     parser.add_argument(
         "--data-dir",
         type=str,
-        default=str(INTERMEDIATE_DIR),
+        default=str(BACKTESTS_DIR),
         help="Directory containing backtest parquet files.",
     )
     parser.add_argument(

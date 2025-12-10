@@ -24,7 +24,6 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from config import (
-    INTERMEDIATE_DIR,
     CACHE_DIR,
     BENCHMARK_TICKERS,
     PLOT_COLORS,

@@ -18,7 +18,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from config import (
-    INTERMEDIATE_DIR,
+    MARKET_DATA_DIR,
     REPORTS_DIR,
     PLOTS_DIR,
     DEFAULT_VIX_REGIMES,
@@ -673,7 +673,7 @@ class VixRegimeAnalyzer:
 
     def save_stats(
         self,
-        output_dir: Union[str, Path] = INTERMEDIATE_DIR,
+        output_dir: Union[str, Path] = REPORTS_DIR,
         filename: str = "vix_regime_stats.parquet",
     ) -> Path:
         """Save regime statistics to parquet."""
@@ -692,7 +692,7 @@ class VixRegimeAnalyzer:
 # =============================================================================
 
 def load_data_for_vix_analysis(
-    data_dir: Union[str, Path] = INTERMEDIATE_DIR,
+    data_dir: Union[str, Path] = MARKET_DATA_DIR,
 ) -> tuple[pd.Series, pd.Series, Optional[pd.Series]]:
     """
     Load data needed for VIX analysis.
@@ -746,7 +746,7 @@ def main():
     parser.add_argument(
         "--data-dir",
         type=str,
-        default=str(INTERMEDIATE_DIR),
+        default=str(MARKET_DATA_DIR),
         help="Directory containing data files.",
     )
     parser.add_argument(

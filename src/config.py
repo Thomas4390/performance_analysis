@@ -22,9 +22,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 
 # Data directories
 DATA_DIR = PROJECT_ROOT / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
-INTERMEDIATE_DIR = DATA_DIR / "intermediate"
-CACHE_DIR = DATA_DIR / "cache"
+MARKET_DATA_DIR = DATA_DIR / "market"      # Market data (benchmarks, VIX)
+BACKTESTS_DIR = DATA_DIR / "backtests"     # Strategy backtest files (.ods, .xlsx)
+CACHE_DIR = DATA_DIR / "cache"             # Temporary cache for downloads
 
 # Output directories
 REPORTS_DIR = PROJECT_ROOT / "reports"
@@ -33,7 +33,7 @@ PLOTS_DIR = REPORTS_DIR / "plots"
 
 def ensure_directories() -> None:
     """Create all required directories if they don't exist."""
-    for directory in [RAW_DATA_DIR, INTERMEDIATE_DIR, CACHE_DIR, REPORTS_DIR, PLOTS_DIR]:
+    for directory in [MARKET_DATA_DIR, BACKTESTS_DIR, CACHE_DIR, REPORTS_DIR, PLOTS_DIR]:
         directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -114,8 +114,8 @@ class AnalysisConfig:
     """Configuration for backtest analysis."""
 
     # Data paths
-    raw_data_dir: Path = RAW_DATA_DIR
-    intermediate_dir: Path = INTERMEDIATE_DIR
+    market_data_dir: Path = MARKET_DATA_DIR
+    backtests_dir: Path = BACKTESTS_DIR
     cache_dir: Path = CACHE_DIR
     output_dir: Path = REPORTS_DIR
     plots_dir: Path = PLOTS_DIR
@@ -148,10 +148,10 @@ class AnalysisConfig:
 
     def __post_init__(self):
         """Convert string paths to Path objects if necessary."""
-        if isinstance(self.raw_data_dir, str):
-            self.raw_data_dir = Path(self.raw_data_dir)
-        if isinstance(self.intermediate_dir, str):
-            self.intermediate_dir = Path(self.intermediate_dir)
+        if isinstance(self.market_data_dir, str):
+            self.market_data_dir = Path(self.market_data_dir)
+        if isinstance(self.backtests_dir, str):
+            self.backtests_dir = Path(self.backtests_dir)
         if isinstance(self.cache_dir, str):
             self.cache_dir = Path(self.cache_dir)
         if isinstance(self.output_dir, str):

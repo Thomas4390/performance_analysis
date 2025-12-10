@@ -18,7 +18,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from config import (
-    INTERMEDIATE_DIR,
+    MARKET_DATA_DIR,
     REPORTS_DIR,
     PLOTS_DIR,
     PLOT_TEMPLATE,
@@ -635,7 +635,7 @@ class ReportGenerator:
 
     def save_metrics(
         self,
-        output_dir: Union[str, Path] = INTERMEDIATE_DIR,
+        output_dir: Union[str, Path] = REPORTS_DIR,
         filename: str = "performance_metrics.parquet",
     ) -> Path:
         """Save metrics to parquet."""
@@ -655,7 +655,7 @@ class ReportGenerator:
 # =============================================================================
 
 def load_returns_for_report(
-    data_dir: Union[str, Path] = INTERMEDIATE_DIR,
+    data_dir: Union[str, Path] = MARKET_DATA_DIR,
 ) -> tuple[pd.Series, Optional[pd.Series]]:
     """
     Load strategy and benchmark returns for report generation.
@@ -700,7 +700,7 @@ def main():
     parser.add_argument(
         "--data-dir",
         type=str,
-        default=str(INTERMEDIATE_DIR),
+        default=str(MARKET_DATA_DIR),
         help="Directory containing data files.",
     )
     parser.add_argument(

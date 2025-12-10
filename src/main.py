@@ -23,8 +23,8 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from config import (
-    RAW_DATA_DIR,
-    INTERMEDIATE_DIR,
+    BACKTESTS_DIR,
+    MARKET_DATA_DIR,
     CACHE_DIR,
     REPORTS_DIR,
     PLOTS_DIR,
@@ -68,12 +68,12 @@ class AnalysisRunner:
         self.results = {}
 
         # Initialize components
-        self.loader = BacktestLoader(config.raw_data_dir, config.intermediate_dir)
+        self.loader = BacktestLoader(config.backtests_dir)
         self.downloader = MarketDataDownloader(config.cache_dir)
 
     def _setup_directories(self) -> None:
         """Create output directories if needed."""
-        Path(self.config.intermediate_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.config.market_data_dir).mkdir(parents=True, exist_ok=True)
         Path(self.config.output_dir).mkdir(parents=True, exist_ok=True)
         Path(self.config.plots_dir).mkdir(parents=True, exist_ok=True)
 
@@ -107,7 +107,7 @@ class AnalysisRunner:
         print(combiner.get_weight_summary())
 
         portfolio = combiner.combine(self.config.initial_capital)
-        combiner.save_combined(portfolio, self.config.intermediate_dir)
+        combiner.save_combined(portfolio, self.config.output_dir)
 
         print(f"  Combined portfolio: {len(portfolio.data)} days")
         print(f"  Date range: {portfolio.data['date'].min().date()} to {portfolio.data['date'].max().date()}")
@@ -130,14 +130,14 @@ class AnalysisRunner:
         )
         self.downloader.save(
             benchmark,
-            self.config.intermediate_dir,
+            self.config.market_data_dir,
             f"benchmark_{self.config.benchmark_ticker.lower()}.parquet",
         )
         print(f"  Downloaded {self.config.benchmark_ticker}: {len(benchmark.data)} days")
 
         # Download VIX
         vix_data = self.downloader.download_vix(start_date, end_date)
-        self.downloader.save(vix_data, self.config.intermediate_dir, "vix.parquet")
+        self.downloader.save(vix_data, self.config.market_data_dir, "vix.parquet")
         print(f"  Downloaded VIX: {len(vix_data.data)} days")
 
         return benchmark.returns, vix_data.data.set_index("date")["vix"]
@@ -408,8 +408,8 @@ Examples:
     parser.add_argument(
         "--raw-dir",
         type=str,
-        default=str(RAW_DATA_DIR),
-        help="Directory containing raw backtest files.",
+        default=str(BACKTESTS_DIR),
+        help="Directory containing backtest files.",
     )
     parser.add_argument(
         "--output-dir",
@@ -469,8 +469,8 @@ Examples:
 
     # Create configuration
     config = AnalysisConfig(
-        raw_data_dir=args.raw_dir,
-        intermediate_dir=str(INTERMEDIATE_DIR),
+        backtests_dir=args.raw_dir,
+        market_data_dir=str(MARKET_DATA_DIR),
         output_dir=args.output_dir,
         cache_dir=str(CACHE_DIR),
         plots_dir=str(PLOTS_DIR),

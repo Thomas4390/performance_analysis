@@ -17,8 +17,7 @@ from typing import Optional, Union
 import pandas as pd
 
 from config import (
-    RAW_DATA_DIR,
-    INTERMEDIATE_DIR,
+    BACKTESTS_DIR,
     FileFormat,
     REQUIRED_BACKTEST_COLUMNS,
     COLUMN_ALIASES,
@@ -107,18 +106,18 @@ class BacktestLoader:
 
     def __init__(
         self,
-        data_dir: Union[str, Path] = RAW_DATA_DIR,
-        output_dir: Union[str, Path] = INTERMEDIATE_DIR,
+        data_dir: Union[str, Path] = BACKTESTS_DIR,
+        output_dir: Optional[Union[str, Path]] = None,
     ):
         """
         Initialize the backtest loader.
 
         Args:
             data_dir: Directory containing backtest files.
-            output_dir: Directory for output parquet files.
+            output_dir: Directory for output parquet files (optional).
         """
         self.data_dir = Path(data_dir)
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(output_dir) if output_dir else self.data_dir
 
     def list_backtests(self) -> list[str]:
         """
@@ -319,7 +318,7 @@ class BacktestLoader:
 # =============================================================================
 
 def load_backtests_from_parquet(
-    data_dir: Union[str, Path] = INTERMEDIATE_DIR,
+    data_dir: Union[str, Path] = BACKTESTS_DIR,
     names: Optional[list[str]] = None,
 ) -> dict[str, pd.DataFrame]:
     """
@@ -363,13 +362,13 @@ def main():
     parser.add_argument(
         "--data-dir",
         type=str,
-        default=str(RAW_DATA_DIR),
+        default=str(BACKTESTS_DIR),
         help="Directory containing backtest files.",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        default=str(INTERMEDIATE_DIR),
+        default=str(BACKTESTS_DIR),
         help="Directory for output parquet files.",
     )
     parser.add_argument(

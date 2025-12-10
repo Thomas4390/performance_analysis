@@ -20,8 +20,7 @@ import pandas as pd
 
 from config import (
     CACHE_DIR,
-    DATA_DIR,
-    INTERMEDIATE_DIR,
+    MARKET_DATA_DIR,
     BENCHMARK_TICKERS,
     VIX_TICKER,
 )
@@ -32,12 +31,12 @@ from config import (
 # =============================================================================
 
 LOCAL_DATA_FILES = {
-    "SPY": DATA_DIR / "spy.csv",
-    "QQQ": DATA_DIR / "qqq.csv",
-    "IWM": DATA_DIR / "iwm.csv",
-    "DIA": DATA_DIR / "dia.csv",
-    "VTI": DATA_DIR / "vti.csv",
-    "VIX": DATA_DIR / "vix.csv",
+    "SPY": MARKET_DATA_DIR / "spy.parquet",
+    "QQQ": MARKET_DATA_DIR / "qqq.parquet",
+    "IWM": MARKET_DATA_DIR / "iwm.parquet",
+    "DIA": MARKET_DATA_DIR / "dia.parquet",
+    "VTI": MARKET_DATA_DIR / "vti.parquet",
+    "VIX": MARKET_DATA_DIR / "vix.parquet",
 }
 
 
@@ -105,14 +104,14 @@ class MarketDataDownloader:
         clean_ticker = ticker.replace("^", "").replace("/", "_")
         return self.cache_dir / f"{clean_ticker}_{start}_{end}.parquet"
 
-    def _load_from_local_csv(
+    def _load_from_local_parquet(
         self,
         ticker: str,
         start_date: str,
         end_date: str,
     ) -> Optional[pd.DataFrame]:
         """
-        Load data from local CSV file if available.
+        Load data from local parquet file if available.
 
         Args:
             ticker: Ticker symbol (SPY, QQQ, IWM, DIA, VTI, or ^VIX).
@@ -131,7 +130,7 @@ class MarketDataDownloader:
             return None
 
         try:
-            df = pd.read_csv(local_path)
+            df = pd.read_parquet(local_path)
             df["date"] = pd.to_datetime(df["date"])
 
             # Filter by date range
@@ -210,9 +209,9 @@ class MarketDataDownloader:
         start_str = pd.to_datetime(start_date).strftime("%Y-%m-%d")
         end_str = pd.to_datetime(end_date or datetime.now()).strftime("%Y-%m-%d")
 
-        # Try local CSV files first (for deployed environments)
+        # Try local parquet files first (for deployed environments)
         if self.use_local_data:
-            local_data = self._load_from_local_csv(ticker, start_str, end_str)
+            local_data = self._load_from_local_parquet(ticker, start_str, end_str)
             if local_data is not None and not local_data.empty:
                 return local_data
 
@@ -370,7 +369,7 @@ class MarketDataDownloader:
     def save(
         self,
         market_data: MarketData,
-        output_dir: Union[str, Path] = INTERMEDIATE_DIR,
+        output_dir: Union[str, Path] = MARKET_DATA_DIR,
         filename: Optional[str] = None,
     ) -> Path:
         """
@@ -402,7 +401,7 @@ class MarketDataDownloader:
 # =============================================================================
 
 def load_market_data(
-    data_dir: Union[str, Path] = INTERMEDIATE_DIR,
+    data_dir: Union[str, Path] = MARKET_DATA_DIR,
 ) -> tuple[Optional[pd.Series], Optional[pd.Series]]:
     """
     Load benchmark returns and VIX from parquet files.
@@ -441,6 +440,84 @@ def load_market_data(
 # CLI MAIN
 # =============================================================================
 
+def download_single_benchmark(
+    downloader: MarketDataDownloader,
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    output_dir: Path,
+) -> bool:
+    """
+    Download a single benchmark and save to parquet.
+
+    Args:
+        downloader: MarketDataDownloader instance.
+        ticker: Ticker symbol.
+        start_date: Start date string.
+        end_date: End date string.
+        output_dir: Output directory.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    print(f"\nDownloading {ticker}...")
+    print(f"  Period: {start_date} to {end_date}")
+
+    try:
+        benchmark = downloader.download_benchmark(ticker, start_date, end_date)
+        filepath = output_dir / f"{ticker.lower()}.parquet"
+        benchmark.data.to_parquet(filepath, index=False)
+
+        returns = benchmark.returns
+        print(f"  Downloaded: {len(benchmark.data)} rows")
+        print(f"  Saved to: {filepath}")
+        print(f"  Mean daily return: {returns.mean():.4%}")
+        print(f"  Total return: {(1 + returns).prod() - 1:.2%}")
+        return True
+
+    except Exception as e:
+        print(f"  Error: {e}")
+        return False
+
+
+def download_vix_data(
+    downloader: MarketDataDownloader,
+    start_date: str,
+    end_date: str,
+    output_dir: Path,
+) -> bool:
+    """
+    Download VIX data and save to parquet.
+
+    Args:
+        downloader: MarketDataDownloader instance.
+        start_date: Start date string.
+        end_date: End date string.
+        output_dir: Output directory.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    print("\nDownloading VIX...")
+    print(f"  Period: {start_date} to {end_date}")
+
+    try:
+        vix_data = downloader.download_vix(start_date, end_date)
+        filepath = output_dir / "vix.parquet"
+        vix_data.data.to_parquet(filepath, index=False)
+
+        vix = vix_data.data["vix"]
+        print(f"  Downloaded: {len(vix_data.data)} rows")
+        print(f"  Saved to: {filepath}")
+        print(f"  Mean VIX: {vix.mean():.2f}")
+        print(f"  Current VIX: {vix.iloc[-1]:.2f}")
+        return True
+
+    except Exception as e:
+        print(f"  Error: {e}")
+        return False
+
+
 def main():
     """Main function for CLI usage."""
     parser = argparse.ArgumentParser(
@@ -450,13 +527,19 @@ def main():
         "--ticker",
         type=str,
         default="SPY",
-        help="Benchmark ticker symbol.",
+        help="Benchmark ticker symbol (ignored if --all is used).",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        dest="download_all",
+        help="Download all benchmarks (SPY, QQQ, IWM, DIA, VTI) and VIX.",
     )
     parser.add_argument(
         "--start",
         type=str,
-        default="2020-01-01",
-        help="Start date (YYYY-MM-DD).",
+        default="2010-01-01",
+        help="Start date (YYYY-MM-DD). Default: 2010-01-01.",
     )
     parser.add_argument(
         "--end",
@@ -467,8 +550,8 @@ def main():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default=str(INTERMEDIATE_DIR),
-        help="Output directory.",
+        default=str(MARKET_DATA_DIR),
+        help=f"Output directory. Default: {MARKET_DATA_DIR}",
     )
     parser.add_argument(
         "--no-vix",
@@ -481,46 +564,46 @@ def main():
     print("  MARKET DATA DOWNLOADER")
     print("=" * 60)
 
-    downloader = MarketDataDownloader()
+    # Use local_data=False to force download from Yahoo Finance
+    downloader = MarketDataDownloader(use_local_data=False)
     end_date = args.end or datetime.now().strftime("%Y-%m-%d")
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download benchmark
-    print(f"\nDownloading {args.ticker}...")
-    print(f"  Period: {args.start} to {end_date}")
+    success_count = 0
+    fail_count = 0
 
-    try:
-        benchmark = downloader.download_benchmark(args.ticker, args.start, end_date)
-        filepath = downloader.save(
-            benchmark,
-            args.output_dir,
-            f"benchmark_{args.ticker.lower()}.parquet"
-        )
+    if args.download_all:
+        # Download all benchmarks
+        print(f"\nDownloading ALL benchmarks to {output_dir}")
+        tickers = list(BENCHMARK_TICKERS.keys())
+    else:
+        tickers = [args.ticker]
 
-        returns = benchmark.returns
-        print(f"  Downloaded: {len(benchmark.data)} rows")
-        print(f"  Saved to: {filepath}")
-        print(f"  Mean daily return: {returns.mean():.4%}")
-        print(f"  Total return: {(1 + returns).prod() - 1:.2%}")
-
-    except Exception as e:
-        print(f"  Error: {e}")
+    for ticker in tickers:
+        if download_single_benchmark(downloader, ticker, args.start, end_date, output_dir):
+            success_count += 1
+        else:
+            fail_count += 1
 
     # Download VIX
     if not args.no_vix:
-        print(f"\nDownloading VIX...")
+        if download_vix_data(downloader, args.start, end_date, output_dir):
+            success_count += 1
+        else:
+            fail_count += 1
 
-        try:
-            vix_data = downloader.download_vix(args.start, end_date)
-            filepath = downloader.save(vix_data, args.output_dir, "vix.parquet")
+    # Summary
+    print("\n" + "-" * 60)
+    print(f"  Summary: {success_count} successful, {fail_count} failed")
 
-            vix = vix_data.data["vix"]
-            print(f"  Downloaded: {len(vix_data.data)} rows")
-            print(f"  Saved to: {filepath}")
-            print(f"  Mean VIX: {vix.mean():.2f}")
-            print(f"  Current VIX: {vix.iloc[-1]:.2f}")
-
-        except Exception as e:
-            print(f"  Error: {e}")
+    if args.download_all:
+        print(f"\n  Files saved to: {output_dir}")
+        print("  Files created:")
+        for ticker in tickers:
+            print(f"    - {ticker.lower()}.parquet")
+        if not args.no_vix:
+            print("    - vix.parquet")
 
     # Show available benchmarks
     print(f"\nAvailable benchmark tickers:")
