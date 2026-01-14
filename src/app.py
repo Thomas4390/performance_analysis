@@ -37,6 +37,8 @@ from market_data import MarketDataDownloader
 from vix_analysis import VixRegimeAnalyzer
 from vrp_analysis import VRPAnalyzer, DEFAULT_VRP_REGIMES
 from report_generator import ReportGenerator
+from correlation_analysis import CorrelationAnalyzer, GARCHFilter
+from copula_analysis import CopulaAnalyzer, MultiStrategyCopulaAnalyzer
 
 # Warmup Numba JIT compilation at module load
 try:
@@ -771,6 +773,9 @@ def init_session_state():
         "cached_report_gen": None,
         "cached_comparison_plot": None,
         "cached_vrp_analyzer": None,
+        # Correlation analysis cache
+        "cached_correlation_analyzer": None,
+        "cached_copula_analyzers": {},
         # Track loaded backtest files
         "loaded_files": set(),
     }
@@ -1893,6 +1898,570 @@ def render_vrp_tab():
 
 
 # =============================================================================
+# CORRELATION & COPULA TAB
+# =============================================================================
+
+def render_correlation_tab():
+    """Render the Correlation & Copula analysis tab."""
+    if not st.session_state.analysis_complete:
+        st.markdown("""
+        <div class="info-box">
+            <div class="info-box-icon">⚠️</div>
+            <div class="info-box-content">
+                <div class="info-box-title">Analysis Required</div>
+                <p class="info-box-text">Please run the analysis first to view correlation and copula analysis.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    if len(st.session_state.backtests) < 2:
+        st.warning("At least 2 strategies are required for correlation analysis.")
+        return
+
+    # Header
+    st.markdown("""
+    <div class="section-header">
+        <div class="section-header-icon">🔗</div>
+        <div>
+            <h2 class="section-title">Correlation & Dependency Analysis</h2>
+            <p class="section-subtitle">Analyze the dependency structure between your strategies using GARCH filtering and copulas</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Methodology explanation
+    with st.expander("Understanding the Methodology", expanded=False):
+        st.markdown("""
+        ### ARMA-GARCH Filtering (Step A)
+
+        Raw returns contain **autocorrelation** and **heteroskedasticity** (volatility clustering).
+        We filter these effects to extract the **true innovations** (ε_t):
+
+        1. **ARMA model**: Removes autocorrelation → a_t = r_t - μ_t
+        2. **GARCH model**: Removes volatility clustering → ε_t = a_t / σ_t
+
+        The standardized residuals ε_t have:
+        - Mean ≈ 0
+        - Variance ≈ 1
+        - No autocorrelation
+        - No volatility clustering
+
+        ### Probability Integral Transform (Step B)
+
+        Transform ε_t to uniform margins using the **empirical CDF**:
+        - u_t = rank(ε_t) / (n+1)
+        - Results in u_t ∈ (0, 1) for copula estimation
+
+        ### Copula Estimation (Step C)
+
+        Copulas separate the **dependency structure** from **marginal distributions**:
+
+        | Copula | Tail Dependence | Use Case |
+        |--------|-----------------|----------|
+        | **Gaussian** | None | Benchmark, symmetric |
+        | **Student-t** | Symmetric | Joint extreme events |
+        | **Clayton** | Lower tail | Crash dependence |
+        | **Gumbel** | Upper tail | Rally dependence |
+        | **Frank** | None | Moderate dependence |
+        """)
+
+    # Sidebar controls for this tab
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Correlation Settings")
+
+    garch_dist = st.sidebar.selectbox(
+        "GARCH Innovation Distribution",
+        options=["t", "normal", "skewt"],
+        index=0,
+        help="Distribution for GARCH innovations. Student-t is recommended for financial data.",
+    )
+
+    rolling_window = st.sidebar.slider(
+        "Rolling Correlation Window",
+        min_value=20,
+        max_value=252,
+        value=60,
+        step=10,
+        help="Window size for rolling correlation calculation.",
+    )
+
+    pit_method = st.sidebar.selectbox(
+        "PIT Method",
+        options=["empirical", "normal", "t"],
+        index=0,
+        help="Method for Probability Integral Transform.",
+    )
+
+    # Prepare returns dictionary
+    returns_dict = {
+        name: df.set_index("date")["daily_return_decimal"]
+        for name, df in st.session_state.backtests.items()
+    }
+
+    # Run or use cached correlation analysis
+    run_correlation = st.button("Run Correlation Analysis", type="primary")
+
+    if run_correlation or st.session_state.cached_correlation_analyzer is not None:
+        if run_correlation:
+            with st.spinner("Fitting GARCH models and analyzing correlations..."):
+                try:
+                    analyzer = CorrelationAnalyzer(
+                        returns_dict,
+                        garch_order=(1, 1),
+                        arma_order=(1, 0),
+                        distribution=garch_dist,
+                    )
+                    analyzer.fit_garch()
+                    analyzer.apply_pit(method=pit_method)
+                    st.session_state.cached_correlation_analyzer = analyzer
+                    st.toast("Correlation analysis complete!", icon="✅")
+                except Exception as e:
+                    st.error(f"Error in correlation analysis: {e}")
+                    return
+
+        analyzer = st.session_state.cached_correlation_analyzer
+        if analyzer is None:
+            st.info("Click 'Run Correlation Analysis' to start.")
+            return
+
+        # Sub-tabs for different analyses
+        corr_tabs = st.tabs([
+            "📊 GARCH Diagnostics",
+            "🔗 Correlation Matrix",
+            "📈 Rolling Correlation",
+            "🎯 Tail Dependence",
+            "📐 Copula Analysis",
+            "🌐 3D Copula Surfaces",
+        ])
+
+        # Tab 1: GARCH Diagnostics
+        with corr_tabs[0]:
+            st.markdown("### GARCH Model Diagnostics")
+            st.markdown("""
+            Validate that the GARCH filtering successfully removes autocorrelation and heteroskedasticity.
+            A valid model should have Ljung-Box p-values > 0.05 for both residuals and squared residuals.
+            """)
+
+            # Summary table
+            summary_df = analyzer.generate_summary_stats()
+            st.dataframe(
+                summary_df.style.applymap(
+                    lambda x: "background-color: #d4edda" if x is True else "background-color: #f8d7da" if x is False else "",
+                    subset=["Valid"]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+            # Detailed diagnostics for selected strategy
+            selected_strategy = st.selectbox(
+                "Select strategy for detailed diagnostics",
+                options=list(st.session_state.backtests.keys()),
+            )
+            st.plotly_chart(analyzer.plot_garch_diagnostics(selected_strategy), width="stretch")
+
+            # Conditional volatility comparison
+            st.markdown("### Conditional Volatility Comparison")
+            st.plotly_chart(analyzer.plot_conditional_volatility(), width="stretch")
+
+        # Tab 2: Correlation Matrix
+        with corr_tabs[1]:
+            st.markdown("### Correlation Matrix")
+
+            corr_method = st.radio(
+                "Correlation Method",
+                options=["pearson", "spearman", "kendall"],
+                horizontal=True,
+                help="Pearson measures linear correlation; Spearman and Kendall measure rank correlation.",
+            )
+
+            use_residuals = st.checkbox(
+                "Use standardized residuals (recommended)",
+                value=True,
+                help="Using standardized residuals removes volatility effects from correlation.",
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.plotly_chart(
+                    analyzer.plot_correlation_matrix(method=corr_method, use_residuals=use_residuals),
+                    width="stretch",
+                )
+
+            with col2:
+                st.plotly_chart(
+                    analyzer.plot_scatter_matrix(use_uniforms=False),
+                    width="stretch",
+                )
+
+            # Correlation values
+            st.markdown("#### Correlation Values")
+            corr_matrix = analyzer.get_correlation_matrix(method=corr_method, use_residuals=use_residuals)
+            st.dataframe(corr_matrix.style.background_gradient(cmap="RdBu_r", vmin=-1, vmax=1), width="stretch")
+
+        # Tab 3: Rolling Correlation
+        with corr_tabs[2]:
+            st.markdown("### Rolling Correlation Over Time")
+
+            # Interpretation box
+            with st.expander("How to Interpret Rolling Correlation", expanded=False):
+                st.markdown("""
+                **What is Rolling Correlation?**
+
+                Rolling correlation measures how the relationship between two strategies changes over time.
+                A 60-day rolling window calculates correlation using the past 60 trading days.
+
+                **Interpretation Guide:**
+
+                | Correlation | Interpretation |
+                |-------------|----------------|
+                | **> 0.7** | Strong positive - strategies move together |
+                | **0.3 to 0.7** | Moderate positive - some common movement |
+                | **-0.3 to 0.3** | Low - largely independent movements |
+                | **< -0.3** | Negative - strategies tend to move oppositely |
+
+                **Key Insights:**
+                - **Spikes during crises**: Correlations often increase during market stress (2008, 2020)
+                - **Regime changes**: Watch for sustained shifts in correlation levels
+                - **Diversification**: Lower average correlation = better diversification
+
+                **Warning Signs:**
+                - High correlation during downturns reduces diversification when needed most
+                - Unstable correlation (high std) suggests regime-dependent relationship
+                """)
+
+            # Interactive slider plot
+            st.markdown("#### Interactive Window Adjustment")
+            st.markdown("Use the slider below to explore how correlation changes with different lookback windows:")
+
+            try:
+                interactive_fig = analyzer.plot_rolling_correlation_interactive(
+                    windows=list(range(20, 260, 20)),
+                    use_residuals=True,
+                )
+                st.plotly_chart(interactive_fig, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Interactive plot unavailable: {e}")
+                st.plotly_chart(
+                    analyzer.plot_rolling_correlation(window=rolling_window, use_residuals=True),
+                    use_container_width=True,
+                )
+
+            # Rolling stats summary
+            rolling_result = analyzer.get_rolling_correlation(window=rolling_window)
+            st.markdown("#### Rolling Correlation Statistics")
+
+            stats_data = []
+            for pair, mean_val in rolling_result.mean_correlation.items():
+                stats_data.append({
+                    "Pair": f"{pair[0]} vs {pair[1]}",
+                    "Mean": f"{mean_val:.3f}",
+                    "Std": f"{rolling_result.std_correlation[pair]:.3f}",
+                    "Min": f"{rolling_result.min_correlation[pair]:.3f}",
+                    "Max": f"{rolling_result.max_correlation[pair]:.3f}",
+                    "Range": f"{rolling_result.max_correlation[pair] - rolling_result.min_correlation[pair]:.3f}",
+                })
+            st.dataframe(pd.DataFrame(stats_data), use_container_width=True, hide_index=True)
+
+        # Tab 4: Tail Dependence
+        with corr_tabs[3]:
+            st.markdown("### Tail Dependence Analysis")
+
+            # Interpretation
+            with st.expander("Understanding Tail Dependence", expanded=False):
+                st.markdown("""
+                **What is Tail Dependence?**
+
+                Tail dependence measures the probability of joint extreme events. Unlike correlation
+                (which captures overall co-movement), tail dependence focuses on the **extremes**.
+
+                **Why It Matters:**
+                - Regular correlation can miss tail behavior
+                - Strategies may be uncorrelated on average but crash together
+                - This is the "correlation breakdown" phenomenon during crises
+
+                **Interpretation:**
+
+                | Coefficient | Value | Meaning |
+                |-------------|-------|---------|
+                | **λ_L (Lower)** | > 0.3 | High crash dependence - diversification fails in downturns |
+                | **λ_L (Lower)** | < 0.1 | Low crash dependence - good crisis diversification |
+                | **λ_U (Upper)** | > 0.3 | High rally dependence - strategies rise together |
+                | **Asymmetry** | > 0 | More crash dependence than rally dependence |
+                | **Asymmetry** | < 0 | More rally dependence than crash dependence |
+
+                **Red Flags:**
+                - λ_L > 0.4: Strategies will likely crash together
+                - Positive asymmetry: Worst case for portfolio protection
+                """)
+
+            st.plotly_chart(analyzer.plot_tail_dependence(), use_container_width=True)
+
+            # Tail dependence at 5%
+            tail_dep = analyzer.estimate_tail_dependence(quantile=0.05)
+            st.markdown("#### Tail Dependence Coefficients (5% quantile)")
+
+            tail_data = []
+            for pair, deps in tail_dep.items():
+                lower = deps["lower_tail"]
+                upper = deps["upper_tail"]
+                asymmetry = deps["asymmetry"]
+
+                # Add interpretation
+                if lower > 0.3:
+                    interpretation = "High crash dependence"
+                elif lower > 0.15:
+                    interpretation = "Moderate crash dependence"
+                else:
+                    interpretation = "Low crash dependence"
+
+                tail_data.append({
+                    "Pair": f"{pair[0]} vs {pair[1]}",
+                    "Lower Tail (λ_L)": f"{lower:.3f}",
+                    "Upper Tail (λ_U)": f"{upper:.3f}",
+                    "Asymmetry": f"{asymmetry:+.3f}",
+                    "Assessment": interpretation,
+                })
+            st.dataframe(pd.DataFrame(tail_data), use_container_width=True, hide_index=True)
+
+            # PIT Validation Section
+            st.markdown("---")
+            st.markdown("### PIT Transformation Validation")
+            st.markdown("""
+            The **Probability Integral Transform (PIT)** must produce uniform margins for valid copula estimation.
+            We run 4 statistical tests to verify uniformity:
+            """)
+
+            # Get PIT validation results
+            try:
+                pit_validation = analyzer.validate_pit()
+
+                pit_validation_data = []
+                for name, result in pit_validation.items():
+                    pit_validation_data.append({
+                        "Strategy": name,
+                        "N": result.n_obs,
+                        "KS p-value": f"{result.ks_pvalue:.4f}",
+                        "KS Pass": "Yes" if result.ks_passed else "No",
+                        "AD Statistic": f"{result.ad_statistic:.4f}",
+                        "AD Pass": "Yes" if result.ad_passed else "No",
+                        "CvM p-value": f"{result.cvm_pvalue:.4f}",
+                        "CvM Pass": "Yes" if result.cvm_passed else "No",
+                        "χ² p-value": f"{result.chi2_pvalue:.4f}",
+                        "χ² Pass": "Yes" if result.chi2_passed else "No",
+                        "Uniform": "Yes" if result.all_tests_passed else "No",
+                    })
+
+                pit_df = pd.DataFrame(pit_validation_data)
+
+                # Color code the results
+                def highlight_validation(val):
+                    if val == "Yes":
+                        return "background-color: #d4edda"
+                    elif val == "No":
+                        return "background-color: #f8d7da"
+                    return ""
+
+                styled_df = pit_df.style.applymap(
+                    highlight_validation,
+                    subset=["KS Pass", "AD Pass", "CvM Pass", "χ² Pass", "Uniform"]
+                )
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+                # Overall assessment
+                all_valid = all(r.all_tests_passed for r in pit_validation.values())
+                if all_valid:
+                    st.success("All PIT transformations pass uniformity tests. Copula estimation is valid.")
+                else:
+                    st.warning("Some PIT transformations fail uniformity tests. Consider using a different PIT method or checking for outliers.")
+
+            except Exception as e:
+                st.warning(f"PIT validation unavailable: {e}")
+
+            # PIT diagnostics plot
+            st.markdown("#### Visual Diagnostics")
+            st.plotly_chart(analyzer.plot_pit_diagnostics(), use_container_width=True)
+
+        # Tab 5: Copula Analysis
+        with corr_tabs[4]:
+            st.markdown("### Copula Model Fitting")
+
+            # Interpretation guide
+            with st.expander("Copula Interpretation Guide", expanded=False):
+                st.markdown("""
+                **What is a Copula?**
+
+                A copula separates the **dependency structure** from **marginal distributions**.
+                It captures how variables move together, independently of their individual behaviors.
+
+                **Copula Families:**
+
+                | Family | Tail Behavior | Best For |
+                |--------|---------------|----------|
+                | **Gaussian** | No tail dependence | Normal market conditions, benchmark |
+                | **Student-t** | Symmetric tails | Joint extreme events (both up and down) |
+                | **Clayton** | Lower tail only | Crash dependence (strategies crash together) |
+                | **Gumbel** | Upper tail only | Rally dependence (strategies rise together) |
+                | **Frank** | No tails | Moderate, symmetric dependence |
+
+                **Model Selection (AIC/BIC):**
+                - Lower AIC/BIC = better fit
+                - If Clayton wins: worry about joint crashes
+                - If Gumbel wins: strategies rise together more than they fall together
+                - If Student-t wins: symmetric extreme co-movement
+
+                **Goodness-of-Fit (GOF) Tests:**
+                - Uses Rosenblatt transform to verify model adequacy
+                - p-value > 0.05: model fits the data well
+                - p-value < 0.05: model may be misspecified
+                """)
+
+            # Select pair for copula analysis
+            strategy_names = list(st.session_state.backtests.keys())
+            if len(strategy_names) >= 2:
+                col1, col2 = st.columns(2)
+                with col1:
+                    strat1 = st.selectbox("First Strategy", options=strategy_names, index=0)
+                with col2:
+                    remaining = [s for s in strategy_names if s != strat1]
+                    strat2 = st.selectbox("Second Strategy", options=remaining, index=0)
+
+                pair_key = (strat1, strat2)
+
+                run_gof = st.checkbox("Run Goodness-of-Fit tests", value=True,
+                    help="Run statistical tests to verify copula model adequacy")
+
+                if st.button("Fit Copulas for Selected Pair"):
+                    with st.spinner("Fitting copula models..."):
+                        uniforms = analyzer.get_pit_uniforms()[[strat1, strat2]]
+                        copula_analyzer = CopulaAnalyzer(uniforms, strategy_names=(strat1, strat2))
+                        copula_analyzer.fit_all_copulas(run_gof=run_gof)
+                        st.session_state.cached_copula_analyzers[pair_key] = copula_analyzer
+                        st.toast("Copula fitting complete!", icon="✅")
+
+                if pair_key in st.session_state.cached_copula_analyzers:
+                    copula_analyzer = st.session_state.cached_copula_analyzers[pair_key]
+
+                    # Summary table
+                    st.markdown("#### Copula Comparison")
+                    summary = copula_analyzer.get_summary_table()
+                    st.dataframe(
+                        summary.style.highlight_min(subset=["AIC", "BIC"], color="#d4edda"),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    # Best copula info
+                    best = copula_analyzer.get_best_copula()
+
+                    # Interpretation of best copula
+                    if best.family == "clayton":
+                        interpretation = "Lower tail dependence detected - strategies tend to crash together"
+                        emoji = "warning"
+                    elif best.family == "gumbel":
+                        interpretation = "Upper tail dependence detected - strategies tend to rally together"
+                        emoji = "chart_with_upwards_trend"
+                    elif best.family == "student_t":
+                        interpretation = "Symmetric tail dependence - joint extreme events in both directions"
+                        emoji = "arrows_counterclockwise"
+                    else:
+                        interpretation = "No significant tail dependence detected"
+                        emoji = "white_check_mark"
+
+                    st.success(f"**Best Copula**: {best.family.replace('_', '-').title()} (AIC: {best.aic:.1f})")
+                    st.info(f"**Interpretation**: {interpretation}")
+
+                    # GOF tests
+                    st.markdown("#### Goodness-of-Fit Tests")
+                    try:
+                        gof_results = copula_analyzer.test_all_gof()
+                        gof_data = [result.get_summary_dict() for result in gof_results.values()]
+                        gof_df = pd.DataFrame(gof_data)
+
+                        def highlight_gof(val):
+                            if val == "Yes":
+                                return "background-color: #d4edda"
+                            elif val == "No":
+                                return "background-color: #f8d7da"
+                            return ""
+
+                        st.dataframe(
+                            gof_df.style.applymap(highlight_gof, subset=["Valid"]),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    except Exception as e:
+                        st.warning(f"GOF tests unavailable: {e}")
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("#### Contour Plot")
+                        st.plotly_chart(copula_analyzer.plot_copula_contour(best.family), use_container_width=True)
+
+                    with col2:
+                        st.markdown("#### Tail Scatter")
+                        st.plotly_chart(copula_analyzer.plot_tail_scatter(), use_container_width=True)
+
+                    st.markdown("#### Model Comparison")
+                    st.plotly_chart(copula_analyzer.plot_model_comparison_bars(), use_container_width=True)
+
+        # Tab 6: 3D Copula Surfaces
+        with corr_tabs[5]:
+            st.markdown("### 3D Copula Density Surfaces")
+            st.markdown("""
+            Visualize the copula density in 3D. The height represents the probability density at each point (u₁, u₂).
+
+            - **Peaks at corners**: Indicate tail dependence
+            - **Uniform surface**: Indicates independence
+            - **Higher center**: Indicates positive dependence
+            """)
+
+            # Check if we have a copula analyzer
+            if st.session_state.cached_copula_analyzers:
+                # Select pair
+                available_pairs = list(st.session_state.cached_copula_analyzers.keys())
+                selected_pair = st.selectbox(
+                    "Select Strategy Pair",
+                    options=available_pairs,
+                    format_func=lambda x: f"{x[0]} vs {x[1]}",
+                )
+
+                copula_analyzer = st.session_state.cached_copula_analyzers[selected_pair]
+
+                # Select copula family
+                copula_family = st.selectbox(
+                    "Copula Family",
+                    options=["gaussian", "student_t", "clayton", "gumbel", "frank"],
+                    format_func=lambda x: x.replace("_", "-").title(),
+                )
+
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.plotly_chart(copula_analyzer.plot_copula_3d(copula_family), width="stretch")
+
+                with col2:
+                    # Display copula parameters
+                    if copula_family in copula_analyzer._results:
+                        result = copula_analyzer._results[copula_family]
+                        st.markdown("#### Parameters")
+                        for param, value in result.params.items():
+                            st.metric(param, f"{value:.4f}")
+                        st.markdown("#### Tail Dependence")
+                        st.metric("Lower Tail (λ_L)", f"{result.lower_tail_dep:.4f}")
+                        st.metric("Upper Tail (λ_U)", f"{result.upper_tail_dep:.4f}")
+
+                # Comparison view
+                st.markdown("#### Compare All Copula Families")
+                st.plotly_chart(copula_analyzer.plot_copula_comparison(), width="stretch")
+
+            else:
+                st.info("Please fit copulas in the 'Copula Analysis' tab first to view 3D surfaces.")
+
+
+# =============================================================================
 # EXPORT TAB
 # =============================================================================
 
@@ -2083,7 +2652,7 @@ def main():
 
     benchmark_ticker, initial_capital = render_sidebar()
 
-    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "📉 VRP Analysis", "💾 Export"])
+    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "📉 VRP Analysis", "🔗 Correlation", "💾 Export"])
 
     with tabs[0]:
         render_upload_tab()
@@ -2096,12 +2665,14 @@ def main():
     with tabs[4]:
         render_vrp_tab()
     with tabs[5]:
+        render_correlation_tab()
+    with tabs[6]:
         render_export_tab()
 
     # Footer
     st.markdown("""
     <div class="app-footer">
-        Built with Streamlit • Performance Analysis v2.2
+        Built with Streamlit • Performance Analysis v2.3 (with Correlation & Copula Analysis)
     </div>
     """, unsafe_allow_html=True)
 

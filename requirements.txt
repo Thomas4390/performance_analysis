@@ -86,3 +86,5 @@ watchdog==6.0.0
 wcwidth==0.2.14
 websockets==15.0.1
 yfinance==0.2.66
+arch==8.0.0
+statsmodels==0.14.6
