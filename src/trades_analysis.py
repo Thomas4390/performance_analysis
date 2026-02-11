@@ -117,6 +117,19 @@ try:
         return result
 
     @jit(nopython=True, cache=True)
+    def _nb_rolling_mean(arr: np.ndarray, window: int) -> np.ndarray:
+        n = len(arr)
+        result = np.empty(n, dtype=np.float64)
+        s = 0.0
+        for i in range(n):
+            s += arr[i]
+            if i >= window:
+                s -= arr[i - window]
+            denom = min(i + 1, window)
+            result[i] = s / denom
+        return result
+
+    @jit(nopython=True, cache=True)
     def _nb_cumsum(arr: np.ndarray) -> np.ndarray:
         n = len(arr)
         result = np.empty(n, dtype=np.float64)
@@ -597,36 +610,65 @@ class TradesAnalyzer:
         return fig
 
     def plot_pnl_sequential(self) -> go.Figure:
-        """P&L vs trade number to detect performance drift."""
+        """P&L vs trade number with Plotly slider for rolling avg window."""
         df = self._combined.sort_values("Entry Time").reset_index(drop=True)
         if df.empty:
             return go.Figure()
 
         trade_num = list(range(1, len(df) + 1))
+        pnl_arr = df["P&L"].values.astype(np.float64)
         colors = ["#2ca02c" if w else "#d62728" for w in df["IsWin"]]
 
-        # Rolling average (window = 20 trades)
-        window = min(20, len(df))
-        rolling_avg = df["P&L"].rolling(window, min_periods=1).mean()
+        windows = [10, 20, 30, 50, 75, 100]
+        windows = [w for w in windows if w <= len(df)]
+        default_idx = next((i for i, w in enumerate(windows) if w >= 20), 0)
 
         fig = go.Figure()
+
+        # Bar trace (always visible, index 0)
         fig.add_trace(go.Bar(
-            x=trade_num, y=df["P&L"].values,
+            x=trade_num, y=pnl_arr,
             name="P&L",
             marker_color=colors,
             opacity=0.6,
         ))
-        fig.add_trace(go.Scatter(
-            x=trade_num, y=rolling_avg.values,
-            mode="lines", name=f"Rolling Avg ({window})",
-            line=dict(color="#f39c12", width=2.5),
-        ))
+
+        # One rolling avg line per window
+        for i, w in enumerate(windows):
+            if HAS_NUMBA:
+                ravg = _nb_rolling_mean(pnl_arr, w)
+            else:
+                ravg = pd.Series(pnl_arr).rolling(w, min_periods=1).mean().values
+            fig.add_trace(go.Scatter(
+                x=trade_num, y=ravg,
+                mode="lines", name=f"Rolling Avg ({w})",
+                line=dict(color="#f39c12", width=2.5),
+                visible=(i == default_idx),
+            ))
+
+        # Slider: bar trace always visible, toggle rolling avg traces
+        steps = []
+        for i, w in enumerate(windows):
+            # trace 0 = bars (always True), traces 1..N = rolling avgs
+            visibility = [True] + [j == i for j in range(len(windows))]
+            steps.append(dict(
+                method="update",
+                args=[{"visible": visibility}],
+                label=str(w),
+            ))
+
         fig.update_layout(
             title="P&L by Trade Number (Sequential)",
             xaxis_title="Trade #",
             yaxis_title="P&L ($)",
             template=PLOT_TEMPLATE,
             height=550,
+            sliders=[dict(
+                active=default_idx,
+                currentvalue=dict(prefix="Rolling Avg: ", suffix=" trades"),
+                pad=dict(t=40),
+                steps=steps,
+            )],
         )
         return fig
 
