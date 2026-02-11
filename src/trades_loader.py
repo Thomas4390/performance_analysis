@@ -190,30 +190,37 @@ class TradesLoader:
         """
         Format trades for export: one row per leg, simplified columns.
 
-        Splits each round-trip trade into entry/exit rows and keeps only:
-        - Date: entry or exit day (date only, no time)
-        - Symbol: option root (e.g. ``SPXW`` from ``SPXW  190114P02460000``)
+        Each round-trip trade produces two rows (entry + exit) sharing
+        the same **entry date**.  Columns:
+
+        - Date: trade entry day (same for both legs)
+        - Symbol: option root (e.g. ``SPXW``)
         - Direction: ``BUY`` or ``SELL`` (exit uses opposite direction)
         - Price: entry or exit price
-
-        Returns:
-            DataFrame with columns ``Date``, ``Symbol``, ``Direction``, ``Price``.
         """
         import re
 
-        split = TradesLoader.split_trades(df)
-        if split.empty:
+        if df.empty:
             return pd.DataFrame(columns=["Date", "Symbol", "Direction", "Price"])
 
-        # Date: day only
-        split["Date"] = pd.to_datetime(split["Timestamp"]).dt.date
+        rows = []
+        for _, trade in df.iterrows():
+            entry_date = pd.to_datetime(trade["Entry Time"]).date()
+            symbol = re.split(r"\s+\d", str(trade.get("Symbols", "")).strip(), maxsplit=1)[0].strip()
+            direction = trade["Direction"].strip().upper()
+            exit_direction = "BUY" if direction == "SELL" else "SELL"
 
-        # Symbol root: strip OCC-style suffix (digits + P/C + strike)
-        split["Symbol"] = split["Symbol"].apply(
-            lambda s: re.split(r"\s+\d", str(s).strip(), maxsplit=1)[0].strip()
-        )
+            rows.append({
+                "Date": entry_date,
+                "Symbol": symbol,
+                "Direction": direction,
+                "Price": trade["Entry Price"],
+            })
+            rows.append({
+                "Date": entry_date,
+                "Symbol": symbol,
+                "Direction": exit_direction,
+                "Price": trade["Exit Price"],
+            })
 
-        # Direction: uppercase
-        split["Direction"] = split["Direction"].str.upper()
-
-        return split[["Date", "Symbol", "Direction", "Price"]].reset_index(drop=True)
+        return pd.DataFrame(rows)
