@@ -514,9 +514,10 @@ class TradesAnalyzer:
         qty = df["Quantity"].fillna(1) if "Quantity" in df.columns else pd.Series(1, index=df.index)
         colors = ["#2ca02c" if w else "#d62728" for w in df["IsWin"]]
 
-        date_labels = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        entry_dates = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        exit_dates = df["Exit Time"].dt.strftime("%Y-%m-%d %H:%M")
         symbols = df.get("Symbols", pd.Series("", index=df.index))
-        customdata = np.column_stack([date_labels, symbols])
+        customdata = np.column_stack([entry_dates, exit_dates, symbols])
         fig = go.Figure(go.Scatter(
             x=df["Holding Hours"],
             y=df["P&L"],
@@ -527,7 +528,7 @@ class TradesAnalyzer:
                 opacity=0.6,
             ),
             customdata=customdata,
-            hovertemplate="Holding: %{x:.1f}h<br>P&L: $%{y:,.0f}<br>%{customdata[0]}<br>%{customdata[1]}<extra></extra>",
+            hovertemplate="Holding: %{x:.1f}h<br>P&L: $%{y:,.0f}<br>Entry: %{customdata[0]}<br>Exit: %{customdata[1]}<br>%{customdata[2]}<extra></extra>",
         ))
         fig.update_layout(
             title="Trade Scatter (Holding Period vs P&L)",
@@ -602,14 +603,16 @@ class TradesAnalyzer:
         fig = go.Figure()
 
         # Bar trace (always visible, index 0)
-        date_labels = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        entry_dates = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        exit_dates = df["Exit Time"].dt.strftime("%Y-%m-%d %H:%M")
+        customdata = np.column_stack([entry_dates, exit_dates])
         fig.add_trace(go.Bar(
             x=trade_num, y=pnl_arr,
             name="P&L",
             marker_color=colors,
             opacity=0.6,
-            customdata=date_labels,
-            hovertemplate="Trade #%{x}<br>P&L: $%{y:,.0f}<br>%{customdata}<extra></extra>",
+            customdata=customdata,
+            hovertemplate="Trade #%{x}<br>P&L: $%{y:,.0f}<br>Entry: %{customdata[0]}<br>Exit: %{customdata[1]}<extra></extra>",
         ))
 
         # One rolling avg line per window
@@ -746,15 +749,17 @@ class TradesAnalyzer:
 
         colors = ["#2ca02c" if w else "#d62728" for w in df["IsWin"]]
 
-        date_labels = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        entry_dates = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        exit_dates = df["Exit Time"].dt.strftime("%Y-%m-%d %H:%M")
+        customdata = np.column_stack([entry_dates, exit_dates])
         fig = go.Figure(go.Scatter(
             x=df["Drawdown"],
             y=df["P&L"],
             mode="markers",
             marker=dict(color=colors, opacity=0.5, size=6),
             name="Trades",
-            customdata=date_labels,
-            hovertemplate="Drawdown: $%{x:,.0f}<br>P&L: $%{y:,.0f}<br>%{customdata}<extra></extra>",
+            customdata=customdata,
+            hovertemplate="Drawdown: $%{x:,.0f}<br>P&L: $%{y:,.0f}<br>Entry: %{customdata[0]}<br>Exit: %{customdata[1]}<extra></extra>",
         ))
         # Add diagonal reference line (breakeven: P&L = -Drawdown)
         max_dd = df["Drawdown"].max()
@@ -785,9 +790,10 @@ class TradesAnalyzer:
         # Risk/reward ratio per trade
         rr = df["P&L"] / df["Drawdown"].replace(0, np.nan)
 
-        date_labels = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        entry_dates = df["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+        exit_dates = df["Exit Time"].dt.strftime("%Y-%m-%d %H:%M")
         rr_labels = [f"R/R: {r:.2f}" if pd.notna(r) else "" for r in rr]
-        customdata = np.column_stack([date_labels, rr_labels])
+        customdata = np.column_stack([entry_dates, exit_dates, rr_labels])
         fig = go.Figure(go.Scatter(
             x=df["Drawdown"],
             y=df["P&L"],
@@ -798,7 +804,7 @@ class TradesAnalyzer:
                 opacity=0.55,
             ),
             customdata=customdata,
-            hovertemplate="Drawdown: $%{x:,.0f}<br>P&L: $%{y:,.0f}<br>%{customdata[0]}<br>%{customdata[1]}<extra></extra>",
+            hovertemplate="Drawdown: $%{x:,.0f}<br>P&L: $%{y:,.0f}<br>Entry: %{customdata[0]}<br>Exit: %{customdata[1]}<br>%{customdata[2]}<extra></extra>",
         ))
         fig.add_hline(y=0, line_color="grey", line_dash="dash", line_width=1)
         fig.update_layout(
