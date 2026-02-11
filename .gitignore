@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.nbc
+*.nbi
+.idea/
+cache/
+data/cache/
+reports/

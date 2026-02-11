@@ -20,11 +20,15 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from config import PLOT_TEMPLATE, PLOT_COLORS
+from config import (
+    PLOT_TEMPLATE, PLOT_COLORS, PLOT_HEIGHT_STANDARD, PLOT_HEIGHT_TALL,
+    DEFAULT_ROLLING_WINDOWS,
+)
 
 # Numba-accelerated helpers (graceful fallback)
 try:
     from numba import jit
+    from metrics_numba import rolling_mean, running_max, cumsum
 
     @jit(nopython=True, cache=True)
     def _nb_compute_streaks(is_win: np.ndarray) -> tuple[int, int]:
@@ -114,37 +118,6 @@ try:
                 win_count -= is_win[i - window]
             denom = min(i + 1, window)
             result[i] = win_count / denom
-        return result
-
-    @jit(nopython=True, cache=True)
-    def _nb_rolling_mean(arr: np.ndarray, window: int) -> np.ndarray:
-        n = len(arr)
-        result = np.empty(n, dtype=np.float64)
-        s = 0.0
-        for i in range(n):
-            s += arr[i]
-            if i >= window:
-                s -= arr[i - window]
-            denom = min(i + 1, window)
-            result[i] = s / denom
-        return result
-
-    @jit(nopython=True, cache=True)
-    def _nb_cumsum(arr: np.ndarray) -> np.ndarray:
-        n = len(arr)
-        result = np.empty(n, dtype=np.float64)
-        result[0] = arr[0]
-        for i in range(1, n):
-            result[i] = result[i - 1] + arr[i]
-        return result
-
-    @jit(nopython=True, cache=True)
-    def _nb_running_max(arr: np.ndarray) -> np.ndarray:
-        n = len(arr)
-        result = np.empty(n, dtype=np.float64)
-        result[0] = arr[0]
-        for i in range(1, n):
-            result[i] = arr[i] if arr[i] > result[i - 1] else result[i - 1]
         return result
 
     HAS_NUMBA = True
@@ -348,7 +321,7 @@ class TradesAnalyzer:
             yaxis_title="Count",
             barmode="overlay",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -380,7 +353,7 @@ class TradesAnalyzer:
             xaxis_title="Date",
             yaxis_title="Cumulative P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -421,7 +394,7 @@ class TradesAnalyzer:
             yaxis_title="Streak Length",
             barmode="relative",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -442,7 +415,7 @@ class TradesAnalyzer:
             title="P&L by Day of Week",
             yaxis_title="Total P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -462,7 +435,7 @@ class TradesAnalyzer:
             xaxis_title="Month",
             yaxis_title="Total P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -480,7 +453,7 @@ class TradesAnalyzer:
             xaxis_title="Hours",
             yaxis_title="Count",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -498,7 +471,7 @@ class TradesAnalyzer:
             xaxis_title="Drawdown ($)",
             yaxis_title="Count",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -528,7 +501,7 @@ class TradesAnalyzer:
         fig.update_layout(
             title="Monthly P&L Heatmap",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -558,7 +531,7 @@ class TradesAnalyzer:
             xaxis_title="Holding Period (hours)",
             yaxis_title="P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -570,14 +543,14 @@ class TradesAnalyzer:
 
         pnl_arr = df["P&L"].values.astype(np.float64)
         if HAS_NUMBA:
-            cum_vals = _nb_cumsum(pnl_arr)
-            rmax_vals = _nb_running_max(cum_vals)
+            cum_vals = cumsum(pnl_arr)
+            rmax_vals = running_max(cum_vals)
         else:
             cum_vals = np.cumsum(pnl_arr)
             rmax_vals = np.maximum.accumulate(cum_vals)
         cum_pnl = pd.Series(cum_vals, index=df.index)
-        running_max = pd.Series(rmax_vals, index=df.index)
-        drawdown = cum_pnl - running_max
+        high_water = pd.Series(rmax_vals, index=df.index)
+        drawdown = cum_pnl - high_water
 
         fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
@@ -589,7 +562,7 @@ class TradesAnalyzer:
             line=dict(color=PLOT_COLORS[0]),
         ), row=1, col=1)
         fig.add_trace(go.Scatter(
-            x=df["Exit Time"], y=running_max,
+            x=df["Exit Time"], y=high_water,
             mode="lines", name="High Water Mark",
             line=dict(color="grey", dash="dot", width=1),
         ), row=1, col=1)
@@ -603,7 +576,7 @@ class TradesAnalyzer:
         fig.update_layout(
             title="Reconstructed Equity Curve",
             template=PLOT_TEMPLATE,
-            height=650,
+            height=PLOT_HEIGHT_TALL,
         )
         fig.update_yaxes(title_text="Cumulative P&L ($)", row=1, col=1)
         fig.update_yaxes(title_text="Drawdown ($)", row=2, col=1)
@@ -619,7 +592,7 @@ class TradesAnalyzer:
         pnl_arr = df["P&L"].values.astype(np.float64)
         colors = ["#2ca02c" if w else "#d62728" for w in df["IsWin"]]
 
-        windows = [10, 20, 30, 50, 75, 100]
+        windows = list(DEFAULT_ROLLING_WINDOWS)
         windows = [w for w in windows if w <= len(df)]
         default_idx = next((i for i, w in enumerate(windows) if w >= 20), 0)
 
@@ -636,7 +609,7 @@ class TradesAnalyzer:
         # One rolling avg line per window
         for i, w in enumerate(windows):
             if HAS_NUMBA:
-                ravg = _nb_rolling_mean(pnl_arr, w)
+                ravg = rolling_mean(pnl_arr, w)
             else:
                 ravg = pd.Series(pnl_arr).rolling(w, min_periods=1).mean().values
             fig.add_trace(go.Scatter(
@@ -662,7 +635,7 @@ class TradesAnalyzer:
             xaxis_title="Trade #",
             yaxis_title="P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
             sliders=[dict(
                 active=default_idx,
                 currentvalue=dict(prefix="Rolling Avg: ", suffix=" trades"),
@@ -681,7 +654,7 @@ class TradesAnalyzer:
         is_win = df["IsWin"].values.astype(np.float64)
         overall_wr = float(is_win.mean())
         dates = df["Entry Time"]
-        windows = [10, 20, 30, 50, 75, 100]
+        windows = list(DEFAULT_ROLLING_WINDOWS)
         windows = [w for w in windows if w <= len(df)]
         default_idx = next((i for i, w in enumerate(windows) if w >= 30), 0)
 
@@ -722,7 +695,7 @@ class TradesAnalyzer:
             yaxis_title="Win Rate",
             yaxis_tickformat=".0%",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
             sliders=[dict(
                 active=default_idx,
                 currentvalue=dict(prefix="Window: ", suffix=" trades"),
@@ -755,7 +728,7 @@ class TradesAnalyzer:
             xaxis_title="Hour (UTC)",
             yaxis_title="Total P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -788,7 +761,7 @@ class TradesAnalyzer:
             xaxis_title="MAE — Max Adverse Excursion ($)",
             yaxis_title="MFE — Max Favorable Excursion / P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
@@ -822,7 +795,7 @@ class TradesAnalyzer:
             xaxis_title="Drawdown ($)",
             yaxis_title="P&L ($)",
             template=PLOT_TEMPLATE,
-            height=550,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 

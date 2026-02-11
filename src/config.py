@@ -226,3 +226,13 @@ PLOT_COLORS = [
 ]
 
 PLOT_TEMPLATE = "plotly_white"
+
+# Plot sizing
+PLOT_HEIGHT_STANDARD = 550
+PLOT_HEIGHT_TALL = 650
+
+# Trading calendar
+TRADING_DAYS_PER_YEAR = 252
+
+# Default rolling windows for trade sliders
+DEFAULT_ROLLING_WINDOWS = [10, 20, 30, 50, 75, 100]

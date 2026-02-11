@@ -28,7 +28,7 @@ def _cumulative_product(returns: np.ndarray) -> np.ndarray:
 
 
 @jit(nopython=True, cache=True)
-def _running_max(arr: np.ndarray) -> np.ndarray:
+def running_max(arr: np.ndarray) -> np.ndarray:
     """Calculate running maximum."""
     n = len(arr)
     result = np.empty(n, dtype=np.float64)
@@ -41,12 +41,12 @@ def _running_max(arr: np.ndarray) -> np.ndarray:
 @jit(nopython=True, cache=True)
 def _drawdown_series(cumulative: np.ndarray) -> np.ndarray:
     """Calculate drawdown series from cumulative returns."""
-    running_max = _running_max(cumulative)
+    rmax = running_max(cumulative)
     n = len(cumulative)
     drawdown = np.empty(n, dtype=np.float64)
     for i in range(n):
-        if running_max[i] != 0:
-            drawdown[i] = (cumulative[i] - running_max[i]) / running_max[i]
+        if rmax[i] != 0:
+            drawdown[i] = (cumulative[i] - rmax[i]) / rmax[i]
         else:
             drawdown[i] = 0.0
     return drawdown
@@ -476,6 +476,8 @@ def warmup():
 
     # Trigger compilation
     calculate_all_metrics(dummy_returns, dummy_benchmark)
+    running_max(dummy_returns)
+    cumsum(dummy_returns)
 
 
 # =============================================================================
@@ -500,6 +502,17 @@ def rolling_mean(arr: np.ndarray, window: int) -> np.ndarray:
         window_sum = window_sum - arr[i - window] + arr[i]
         result[i] = window_sum / window
 
+    return result
+
+
+@jit(nopython=True, cache=True)
+def cumsum(arr: np.ndarray) -> np.ndarray:
+    """Calculate cumulative sum."""
+    n = len(arr)
+    result = np.empty(n, dtype=np.float64)
+    result[0] = arr[0]
+    for i in range(1, n):
+        result[i] = result[i - 1] + arr[i]
     return result
 
 

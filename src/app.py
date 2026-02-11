@@ -31,6 +31,7 @@ from config import (
     PLOT_COLORS,
     PLOT_TEMPLATE,
     DEFAULT_VIX_REGIMES,
+    TRADING_DAYS_PER_YEAR,
 )
 from backtest_loader import BacktestLoader
 from trades_loader import TradesLoader
@@ -753,6 +754,37 @@ def inject_custom_css():
 
 
 # =============================================================================
+# HTML HELPERS
+# =============================================================================
+
+def _render_info_box(icon: str, title: str, text: str) -> None:
+    """Render a styled info-box with icon, title, and text."""
+    st.markdown(f"""
+    <div class="info-box">
+        <div class="info-box-icon">{icon}</div>
+        <div class="info-box-content">
+            <div class="info-box-title">{title}</div>
+            <p class="info-box-text">{text}</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _render_card_header(icon: str, icon_class: str, title: str, subtitle: str) -> None:
+    """Render a card opening with header (must close with '</div>' later)."""
+    st.markdown(f"""
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon {icon_class}">{icon}</div>
+            <div>
+                <h4 class="card-title">{title}</h4>
+                <p class="card-subtitle">{subtitle}</p>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+
+# =============================================================================
 # SESSION STATE INITIALIZATION
 # =============================================================================
 
@@ -1290,16 +1322,7 @@ def render_upload_tab():
     col1, col2 = st.columns([3, 2])
 
     with col1:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon primary">📁</div>
-                <div>
-                    <h4 class="card-title">Upload Strategy Files</h4>
-                    <p class="card-subtitle">Import your strategy performance data</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        _render_card_header("📁", "primary", "Upload Strategy Files", "Import your strategy performance data")
 
         st.markdown("""
         Upload your strategy files using the sidebar. Supported formats:
@@ -1319,27 +1342,10 @@ def render_upload_tab():
         st.markdown("</div>", unsafe_allow_html=True)
 
         if not st.session_state.backtests:
-            st.markdown("""
-            <div class="info-box">
-                <div class="info-box-icon">👈</div>
-                <div class="info-box-content">
-                    <div class="info-box-title">Get Started</div>
-                    <p class="info-box-text">Use the sidebar to upload your strategy files.</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            _render_info_box("👈", "Get Started", "Use the sidebar to upload your strategy files.")
 
     with col2:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon success">📈</div>
-                <div>
-                    <h4 class="card-title">Quick Stats</h4>
-                    <p class="card-subtitle">Loaded strategies overview</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        _render_card_header("📈", "success", "Quick Stats", "Loaded strategies overview")
 
         if st.session_state.backtests:
             for name, df in st.session_state.backtests.items():
@@ -1368,15 +1374,7 @@ def render_upload_tab():
 def render_weights_tab():
     """Render the portfolio weights configuration tab."""
     if not st.session_state.backtests:
-        st.markdown("""
-        <div class="info-box">
-            <div class="info-box-icon">⚠️</div>
-            <div class="info-box-content">
-                <div class="info-box-title">No Data Available</div>
-                <p class="info-box-text">Please upload at least one strategy file first.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_info_box("⚠️", "No Data Available", "Please upload at least one strategy file first.")
         return None
 
     weights = {}
@@ -1386,16 +1384,7 @@ def render_weights_tab():
     col1, col2 = st.columns([3, 2])
 
     with col1:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon primary">⚖️</div>
-                <div>
-                    <h4 class="card-title">Portfolio Allocation</h4>
-                    <p class="card-subtitle">Adjust weights for each strategy</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        _render_card_header("⚖️", "primary", "Portfolio Allocation", "Adjust weights for each strategy")
 
         for name in backtest_names:
             col_name, col_slider = st.columns([1, 3])
@@ -1423,16 +1412,7 @@ def render_weights_tab():
         else:
             normalized_weights = {k: 1.0 / len(weights) for k in weights}
 
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon success">📊</div>
-                <div>
-                    <h4 class="card-title">Allocation Summary</h4>
-                    <p class="card-subtitle">Normalized portfolio weights</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        _render_card_header("📊", "success", "Allocation Summary", "Normalized portfolio weights")
 
         # Pie chart
         fig = go.Figure(data=[go.Pie(
@@ -1468,15 +1448,7 @@ def render_weights_tab():
 def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
     """Render the analysis results tab."""
     if not st.session_state.backtests:
-        st.markdown("""
-        <div class="info-box">
-            <div class="info-box-icon">⚠️</div>
-            <div class="info-box-content">
-                <div class="info-box-title">No Data Available</div>
-                <p class="info-box-text">Please upload at least one strategy file first.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_info_box("⚠️", "No Data Available", "Please upload at least one strategy file first.")
         return
 
     # Get weights
@@ -1681,15 +1653,7 @@ def render_analysis_tab(benchmark_ticker: str, initial_capital: float):
 def render_vix_tab():
     """Render the VIX regime analysis tab."""
     if not st.session_state.analysis_complete:
-        st.markdown("""
-        <div class="info-box">
-            <div class="info-box-icon">⚠️</div>
-            <div class="info-box-content">
-                <div class="info-box-title">Analysis Required</div>
-                <p class="info-box-text">Please run the analysis in the Analysis tab first.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_info_box("⚠️", "Analysis Required", "Please run the analysis in the Analysis tab first.")
         return
 
     strategy_returns = st.session_state.strategy_returns
@@ -1793,15 +1757,7 @@ def render_vix_tab():
 def render_vrp_tab():
     """Render the Volatility Risk Premium (VRP) analysis tab."""
     if not st.session_state.analysis_complete:
-        st.markdown("""
-        <div class="info-box">
-            <div class="info-box-icon">⚠️</div>
-            <div class="info-box-content">
-                <div class="info-box-title">Analysis Required</div>
-                <p class="info-box-text">Please run the analysis first to view VRP analysis.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_info_box("⚠️", "Analysis Required", "Please run the analysis first to view VRP analysis.")
         return
 
     vrp_analyzer = st.session_state.cached_vrp_analyzer
@@ -1993,15 +1949,7 @@ def render_vrp_tab():
 def render_correlation_tab():
     """Render the Correlation & Copula analysis tab."""
     if not st.session_state.analysis_complete:
-        st.markdown("""
-        <div class="info-box">
-            <div class="info-box-icon">⚠️</div>
-            <div class="info-box-content">
-                <div class="info-box-title">Analysis Required</div>
-                <p class="info-box-text">Please run the analysis first to view correlation and copula analysis.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_info_box("⚠️", "Analysis Required", "Please run the analysis first to view correlation and copula analysis.")
         return
 
     if len(st.session_state.backtests) < 2:
@@ -2069,7 +2017,7 @@ def render_correlation_tab():
     rolling_window = st.sidebar.slider(
         "Rolling Correlation Window",
         min_value=20,
-        max_value=252,
+        max_value=TRADING_DAYS_PER_YEAR,
         value=60,
         step=10,
         help="Window size for rolling correlation calculation.",
@@ -2135,7 +2083,7 @@ def render_correlation_tab():
             # Summary table
             summary_df = analyzer.generate_summary_stats()
             st.dataframe(
-                summary_df.style.applymap(
+                summary_df.style.map(
                     lambda x: "background-color: #d4edda" if x is True else "background-color: #f8d7da" if x is False else "",
                     subset=["Valid"]
                 ),
@@ -2353,7 +2301,7 @@ def render_correlation_tab():
                         return "background-color: #f8d7da"
                     return ""
 
-                styled_df = pit_df.style.applymap(
+                styled_df = pit_df.style.map(
                     highlight_validation,
                     subset=["KS Pass", "AD Pass", "CvM Pass", "χ² Pass", "Uniform"]
                 )
@@ -2477,7 +2425,7 @@ def render_correlation_tab():
                             return ""
 
                         st.dataframe(
-                            gof_df.style.applymap(highlight_gof, subset=["Valid"]),
+                            gof_df.style.map(highlight_gof, subset=["Valid"]),
                             width="stretch",
                             hide_index=True,
                         )
@@ -2592,15 +2540,7 @@ def _get_trades_analyzer() -> TradesAnalyzer:
 def render_trades_tab():
     """Render the Trades analysis tab."""
     if not st.session_state.trades:
-        st.markdown("""
-        <div class="info-box">
-            <div class="info-box-icon">📋</div>
-            <div class="info-box-content">
-                <div class="info-box-title">No Trades Loaded</div>
-                <p class="info-box-text">Load trade files from the sidebar to analyze individual trades.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_info_box("📋", "No Trades Loaded", "Load trade files from the sidebar to analyze individual trades.")
         return
 
     full_analyzer = _get_trades_analyzer()
@@ -2629,7 +2569,6 @@ def render_trades_tab():
     with r1c2:
         st.metric("Win Rate", f"{stats.win_rate:.1%}")
     with r1c3:
-        color = "+" if stats.net_pnl >= 0 else ""
         st.metric("Net P&L", f"${stats.net_pnl:,.0f}")
     with r1c4:
         st.metric("Avg P&L", f"${stats.avg_pnl:,.0f}")
@@ -2724,30 +2663,13 @@ def render_trades_tab():
 def render_export_tab():
     """Render the export tab."""
     if not st.session_state.analysis_complete and not st.session_state.trades:
-        st.markdown("""
-        <div class="info-box">
-            <div class="info-box-icon">⚠️</div>
-            <div class="info-box-content">
-                <div class="info-box-title">No Data to Export</div>
-                <p class="info-box-text">Run the analysis or load trades to export results.</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        _render_info_box("⚠️", "No Data to Export", "Run the analysis or load trades to export results.")
         return
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon primary">📊</div>
-                <div>
-                    <h4 class="card-title">Export Data</h4>
-                    <p class="card-subtitle">Download raw data and metrics</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        _render_card_header("📊", "primary", "Export Data", "Download raw data and metrics")
 
         if st.session_state.portfolio and st.session_state.strategy_returns is not None:
             strategy_returns = st.session_state.strategy_returns
@@ -2791,16 +2713,7 @@ def render_export_tab():
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon success">📈</div>
-                <div>
-                    <h4 class="card-title">Generate Reports</h4>
-                    <p class="card-subtitle">Create comprehensive analysis reports</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        _render_card_header("📈", "success", "Generate Reports", "Create comprehensive analysis reports")
 
         if st.session_state.portfolio is not None:
             include_benchmark = st.checkbox(
@@ -2869,16 +2782,7 @@ def render_export_tab():
     # ---- Trade Data Export ----
     if st.session_state.trades:
         st.markdown("---")
-        st.markdown("""
-        <div class="card">
-            <div class="card-header">
-                <div class="card-icon primary">📋</div>
-                <div>
-                    <h4 class="card-title">Trade Data Export</h4>
-                    <p class="card-subtitle">Download trade logs</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        _render_card_header("📋", "primary", "Trade Data Export", "Download trade logs")
 
         trade_analyzer = _get_trades_analyzer()
         combined_trades = trade_analyzer.combined
