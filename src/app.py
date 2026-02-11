@@ -2603,7 +2603,23 @@ def render_trades_tab():
         """, unsafe_allow_html=True)
         return
 
-    analyzer = _get_trades_analyzer()
+    full_analyzer = _get_trades_analyzer()
+
+    # ---- Strategy selector ----
+    strategy_names = list(st.session_state.trades.keys())
+    options = ["All Strategies"] + strategy_names
+    selected_strategy = st.selectbox(
+        "Strategy",
+        options=options,
+        index=0,
+        key="trades_strategy_select",
+    )
+
+    if selected_strategy == "All Strategies":
+        analyzer = full_analyzer
+    else:
+        analyzer = TradesAnalyzer({selected_strategy: st.session_state.trades[selected_strategy]})
+
     stats = analyzer.calculate_summary_stats()
 
     # ---- Metric cards: 2 rows x 4 cols ----
@@ -2688,12 +2704,12 @@ def render_trades_tab():
         st.dataframe(display_df, width="stretch", height=500)
 
     # ---- Per-strategy comparison ----
-    if len(st.session_state.trades) > 1:
+    if selected_strategy == "All Strategies" and len(st.session_state.trades) > 1:
         st.markdown("---")
         st.markdown("### Strategy Comparison")
-        st.plotly_chart(analyzer.plot_strategy_comparison(), width="stretch")
+        st.plotly_chart(full_analyzer.plot_strategy_comparison(), width="stretch")
 
-        per_stats = analyzer.calculate_per_strategy_stats()
+        per_stats = full_analyzer.calculate_per_strategy_stats()
         st.dataframe(per_stats.style.format({
             "win_rate": "{:.1%}",
             "total_pnl": "${:,.0f}",
