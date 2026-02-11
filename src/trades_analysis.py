@@ -22,6 +22,122 @@ from plotly.subplots import make_subplots
 
 from config import PLOT_TEMPLATE, PLOT_COLORS
 
+# Numba-accelerated helpers (graceful fallback)
+try:
+    from numba import jit
+
+    @jit(nopython=True, cache=True)
+    def _nb_compute_streaks(is_win: np.ndarray) -> tuple[int, int]:
+        max_win = max_loss = cur_win = cur_loss = 0
+        for w in is_win:
+            if w:
+                cur_win += 1
+                cur_loss = 0
+            else:
+                cur_loss += 1
+                cur_win = 0
+            if cur_win > max_win:
+                max_win = cur_win
+            if cur_loss > max_loss:
+                max_loss = cur_loss
+        return max_win, max_loss
+
+    @jit(nopython=True, cache=True)
+    def _nb_summary_core(pnl: np.ndarray, fees: np.ndarray, is_win: np.ndarray,
+                         holding_hours: np.ndarray, drawdown: np.ndarray) -> tuple:
+        """Return 18 scalar stats from raw arrays."""
+        n = len(pnl)
+        total_pnl = 0.0
+        total_fees = 0.0
+        sum_win = 0.0
+        sum_loss = 0.0
+        count_win = 0
+        count_loss = 0
+        max_win = -np.inf
+        max_loss = np.inf
+        sum_holding = 0.0
+        max_holding = 0.0
+        sum_dd = 0.0
+        max_dd = 0.0
+
+        for i in range(n):
+            p = pnl[i]
+            total_pnl += p
+            total_fees += fees[i]
+            h = holding_hours[i]
+            sum_holding += h
+            if h > max_holding:
+                max_holding = h
+            d = drawdown[i]
+            sum_dd += d
+            if d > max_dd:
+                max_dd = d
+            if is_win[i]:
+                sum_win += p
+                count_win += 1
+                if p > max_win:
+                    max_win = p
+            else:
+                sum_loss += p
+                count_loss += 1
+                if p < max_loss:
+                    max_loss = p
+
+        if count_win == 0:
+            max_win = 0.0
+        if count_loss == 0:
+            max_loss = 0.0
+
+        win_rate = count_win / n if n > 0 else 0.0
+        net_pnl = total_pnl - total_fees
+        avg_pnl = total_pnl / n if n > 0 else 0.0
+        avg_win = sum_win / count_win if count_win > 0 else 0.0
+        avg_loss = sum_loss / count_loss if count_loss > 0 else 0.0
+        abs_loss = abs(sum_loss)
+        profit_factor = sum_win / abs_loss if abs_loss > 0.0 else np.inf
+        avg_holding = sum_holding / n if n > 0 else 0.0
+        avg_dd = sum_dd / n if n > 0 else 0.0
+        expectancy = (win_rate * avg_win + (1.0 - win_rate) * avg_loss) if n > 0 else 0.0
+
+        return (n, count_win, count_loss, win_rate, total_pnl, total_fees,
+                net_pnl, avg_pnl, max_win, max_loss, avg_win, avg_loss,
+                profit_factor, avg_holding, max_holding, avg_dd, max_dd, expectancy)
+
+    @jit(nopython=True, cache=True)
+    def _nb_rolling_win_rate(is_win: np.ndarray, window: int) -> np.ndarray:
+        n = len(is_win)
+        result = np.empty(n, dtype=np.float64)
+        win_count = 0.0
+        for i in range(n):
+            win_count += is_win[i]
+            if i >= window:
+                win_count -= is_win[i - window]
+            denom = min(i + 1, window)
+            result[i] = win_count / denom
+        return result
+
+    @jit(nopython=True, cache=True)
+    def _nb_cumsum(arr: np.ndarray) -> np.ndarray:
+        n = len(arr)
+        result = np.empty(n, dtype=np.float64)
+        result[0] = arr[0]
+        for i in range(1, n):
+            result[i] = result[i - 1] + arr[i]
+        return result
+
+    @jit(nopython=True, cache=True)
+    def _nb_running_max(arr: np.ndarray) -> np.ndarray:
+        n = len(arr)
+        result = np.empty(n, dtype=np.float64)
+        result[0] = arr[0]
+        for i in range(1, n):
+            result[i] = arr[i] if arr[i] > result[i - 1] else result[i - 1]
+        return result
+
+    HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
+
 
 # =============================================================================
 # DATA CLASSES
@@ -100,40 +216,70 @@ class TradesAnalyzer:
         if df.empty:
             return TradeSummaryStats()
 
-        wins = df[df["IsWin"]]
-        losses = df[~df["IsWin"]]
-        total_wins = wins["P&L"].sum() if not wins.empty else 0.0
-        total_losses = abs(losses["P&L"].sum()) if not losses.empty else 0.0
-        total_fees = df["Fees"].sum() if "Fees" in df.columns else 0.0
+        pnl = df["P&L"].values.astype(np.float64)
+        fees = df["Fees"].values.astype(np.float64) if "Fees" in df.columns else np.zeros(len(df), dtype=np.float64)
+        is_win = df["IsWin"].values.astype(np.bool_)
+        holding = df["Holding Hours"].values.astype(np.float64) if "Holding Hours" in df.columns else np.zeros(len(df), dtype=np.float64)
+        dd = df["Drawdown"].values.astype(np.float64) if "Drawdown" in df.columns else np.zeros(len(df), dtype=np.float64)
 
-        # Streaks
-        longest_win, longest_loss = self._compute_streaks(df["IsWin"])
+        if HAS_NUMBA:
+            (n, count_win, count_loss, win_rate, total_pnl, total_fees,
+             net_pnl, avg_pnl, max_win, max_loss, avg_win, avg_loss,
+             profit_factor, avg_holding, max_holding, avg_dd, max_dd,
+             expectancy) = _nb_summary_core(pnl, fees, is_win, holding, dd)
+            longest_win, longest_loss = _nb_compute_streaks(is_win)
+            median_pnl = float(np.median(pnl))
+            median_holding = float(np.median(holding))
+        else:
+            wins = df[df["IsWin"]]
+            losses = df[~df["IsWin"]]
+            total_wins_sum = wins["P&L"].sum() if not wins.empty else 0.0
+            total_losses_sum = abs(losses["P&L"].sum()) if not losses.empty else 0.0
+            total_fees = fees.sum()
+            n = len(df)
+            count_win = len(wins)
+            count_loss = len(losses)
+            win_rate = count_win / n if n > 0 else 0.0
+            total_pnl = pnl.sum()
+            net_pnl = total_pnl - total_fees
+            avg_pnl = pnl.mean()
+            median_pnl = float(np.median(pnl))
+            max_win = float(wins["P&L"].max()) if not wins.empty else 0.0
+            max_loss = float(losses["P&L"].min()) if not losses.empty else 0.0
+            avg_win = float(wins["P&L"].mean()) if not wins.empty else 0.0
+            avg_loss = float(losses["P&L"].mean()) if not losses.empty else 0.0
+            profit_factor = total_wins_sum / total_losses_sum if total_losses_sum > 0 else float("inf")
+            avg_holding = float(holding.mean())
+            median_holding = float(np.median(holding))
+            max_holding = float(holding.max())
+            avg_dd = float(dd.mean())
+            max_dd = float(dd.max())
+            expectancy = (win_rate * avg_win + (1 - win_rate) * avg_loss) if n > 0 else 0.0
+            longest_win, longest_loss = self._compute_streaks(df["IsWin"])
 
         return TradeSummaryStats(
-            total_trades=len(df),
-            winning_trades=len(wins),
-            losing_trades=len(losses),
-            win_rate=len(wins) / len(df) if len(df) > 0 else 0.0,
-            total_pnl=df["P&L"].sum(),
-            total_fees=total_fees,
-            net_pnl=df["P&L"].sum() - total_fees,
-            avg_pnl=df["P&L"].mean(),
-            median_pnl=df["P&L"].median(),
-            max_win=wins["P&L"].max() if not wins.empty else 0.0,
-            max_loss=losses["P&L"].min() if not losses.empty else 0.0,
-            avg_win=wins["P&L"].mean() if not wins.empty else 0.0,
-            avg_loss=losses["P&L"].mean() if not losses.empty else 0.0,
-            profit_factor=total_wins / total_losses if total_losses > 0 else float("inf"),
-            avg_holding_hours=df["Holding Hours"].mean() if "Holding Hours" in df.columns else 0.0,
-            median_holding_hours=df["Holding Hours"].median() if "Holding Hours" in df.columns else 0.0,
-            max_holding_hours=df["Holding Hours"].max() if "Holding Hours" in df.columns else 0.0,
-            avg_drawdown=df["Drawdown"].mean() if "Drawdown" in df.columns else 0.0,
-            max_drawdown=df["Drawdown"].max() if "Drawdown" in df.columns else 0.0,
-            expectancy=(len(wins) / len(df) * (wins["P&L"].mean() if not wins.empty else 0) +
-                        len(losses) / len(df) * (losses["P&L"].mean() if not losses.empty else 0))
-            if len(df) > 0 else 0.0,
-            longest_win_streak=longest_win,
-            longest_loss_streak=longest_loss,
+            total_trades=int(n),
+            winning_trades=int(count_win),
+            losing_trades=int(count_loss),
+            win_rate=float(win_rate),
+            total_pnl=float(total_pnl),
+            total_fees=float(total_fees),
+            net_pnl=float(net_pnl),
+            avg_pnl=float(avg_pnl),
+            median_pnl=median_pnl,
+            max_win=float(max_win),
+            max_loss=float(max_loss),
+            avg_win=float(avg_win),
+            avg_loss=float(avg_loss),
+            profit_factor=float(profit_factor),
+            avg_holding_hours=float(avg_holding),
+            median_holding_hours=median_holding,
+            max_holding_hours=float(max_holding),
+            avg_drawdown=float(avg_dd),
+            max_drawdown=float(max_dd),
+            expectancy=float(expectancy),
+            longest_win_streak=int(longest_win),
+            longest_loss_streak=int(longest_loss),
         )
 
     def calculate_per_strategy_stats(self) -> pd.DataFrame:
@@ -409,8 +555,15 @@ class TradesAnalyzer:
         if df.empty:
             return go.Figure()
 
-        cum_pnl = df["P&L"].cumsum()
-        running_max = cum_pnl.cummax()
+        pnl_arr = df["P&L"].values.astype(np.float64)
+        if HAS_NUMBA:
+            cum_vals = _nb_cumsum(pnl_arr)
+            rmax_vals = _nb_running_max(cum_vals)
+        else:
+            cum_vals = np.cumsum(pnl_arr)
+            rmax_vals = np.maximum.accumulate(cum_vals)
+        cum_pnl = pd.Series(cum_vals, index=df.index)
+        running_max = pd.Series(rmax_vals, index=df.index)
         drawdown = cum_pnl - running_max
 
         fig = make_subplots(
@@ -477,32 +630,63 @@ class TradesAnalyzer:
         )
         return fig
 
-    def plot_rolling_win_rate(self, window: int = 30) -> go.Figure:
-        """Rolling win rate over a sliding window of N trades."""
+    def plot_rolling_win_rate(self) -> go.Figure:
+        """Rolling win rate with Plotly slider for window selection."""
         df = self._combined.sort_values("Entry Time").reset_index(drop=True)
         if df.empty:
             return go.Figure()
 
-        window = min(window, len(df))
-        rolling_wr = df["IsWin"].astype(float).rolling(window, min_periods=1).mean()
+        is_win = df["IsWin"].values.astype(np.float64)
+        overall_wr = float(is_win.mean())
+        dates = df["Entry Time"]
+        windows = [10, 20, 30, 50, 75, 100]
+        windows = [w for w in windows if w <= len(df)]
+        default_idx = next((i for i, w in enumerate(windows) if w >= 30), 0)
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df["Entry Time"], y=rolling_wr,
-            mode="lines", name=f"Rolling Win Rate ({window} trades)",
-            line=dict(color=PLOT_COLORS[0]),
-        ))
+        for i, w in enumerate(windows):
+            if HAS_NUMBA:
+                wr = _nb_rolling_win_rate(is_win, w)
+            else:
+                wr = pd.Series(is_win).rolling(w, min_periods=1).mean().values
+            fig.add_trace(go.Scatter(
+                x=dates, y=wr,
+                mode="lines",
+                name=f"{w} trades",
+                line=dict(color=PLOT_COLORS[0]),
+                visible=(i == default_idx),
+            ))
+
+        # Overall win rate line (always visible)
         fig.add_hline(
-            y=df["IsWin"].mean(), line_dash="dash", line_color="grey",
-            annotation_text=f"Overall: {df['IsWin'].mean():.1%}",
+            y=overall_wr, line_dash="dash", line_color="grey",
+            annotation_text=f"Overall: {overall_wr:.1%}",
         )
+
+        # Plotly slider
+        steps = []
+        for i, w in enumerate(windows):
+            visibility = [False] * len(windows)
+            visibility[i] = True
+            steps.append(dict(
+                method="update",
+                args=[{"visible": visibility}],
+                label=str(w),
+            ))
+
         fig.update_layout(
-            title=f"Rolling Win Rate ({window}-Trade Window)",
+            title="Rolling Win Rate",
             xaxis_title="Date",
             yaxis_title="Win Rate",
             yaxis_tickformat=".0%",
             template=PLOT_TEMPLATE,
             height=550,
+            sliders=[dict(
+                active=default_idx,
+                currentvalue=dict(prefix="Window: ", suffix=" trades"),
+                pad=dict(t=40),
+                steps=steps,
+            )],
         )
         return fig
 

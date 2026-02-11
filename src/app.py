@@ -2675,8 +2675,7 @@ def render_trades_tab():
         st.plotly_chart(analyzer.plot_win_loss_streaks(), width="stretch")
 
     with sub_tabs[5]:
-        rolling_window = st.slider("Window size (trades)", 10, 100, 30, key="rolling_wr_window")
-        st.plotly_chart(analyzer.plot_rolling_win_rate(window=rolling_window), width="stretch")
+        st.plotly_chart(analyzer.plot_rolling_win_rate(), width="stretch")
 
     with sub_tabs[6]:
         st.plotly_chart(analyzer.plot_holding_period_distribution(), width="stretch")
