@@ -25,6 +25,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 MARKET_DATA_DIR = DATA_DIR / "market"      # Market data (benchmarks, VIX)
 BACKTESTS_DIR = DATA_DIR / "backtests"     # Strategy backtest files (.ods, .xlsx)
 CACHE_DIR = DATA_DIR / "cache"             # Temporary cache for downloads
+TRADES_DIR = DATA_DIR / "trades"           # Trade log files (.csv)
 
 # Output directories
 REPORTS_DIR = PROJECT_ROOT / "reports"
@@ -33,7 +34,7 @@ PLOTS_DIR = REPORTS_DIR / "plots"
 
 def ensure_directories() -> None:
     """Create all required directories if they don't exist."""
-    for directory in [MARKET_DATA_DIR, BACKTESTS_DIR, CACHE_DIR, REPORTS_DIR, PLOTS_DIR]:
+    for directory in [MARKET_DATA_DIR, BACKTESTS_DIR, CACHE_DIR, TRADES_DIR, REPORTS_DIR, PLOTS_DIR]:
         directory.mkdir(parents=True, exist_ok=True)
 
 

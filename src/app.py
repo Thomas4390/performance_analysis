@@ -26,12 +26,15 @@ import streamlit as st
 from config import (
     CACHE_DIR,
     BACKTESTS_DIR,
+    TRADES_DIR,
     BENCHMARK_TICKERS,
     PLOT_COLORS,
     PLOT_TEMPLATE,
     DEFAULT_VIX_REGIMES,
 )
 from backtest_loader import BacktestLoader
+from trades_loader import TradesLoader
+from trades_analysis import TradesAnalyzer
 from backtest_combiner import BacktestCombiner, CombinedPortfolio
 from market_data import MarketDataDownloader
 from vix_analysis import VixRegimeAnalyzer
@@ -778,6 +781,10 @@ def init_session_state():
         "cached_copula_analyzers": {},
         # Track loaded backtest files
         "loaded_files": set(),
+        # Trade analysis
+        "trades": {},
+        "trades_loaded_files": set(),
+        "cached_trades_analyzer": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -1155,6 +1162,88 @@ def render_sidebar():
                         del st.session_state.backtests[name]
                         if name in st.session_state.loaded_files:
                             st.session_state.loaded_files.discard(name)
+                        st.rerun()
+
+        st.markdown("---")
+
+        # ----- Load Trades -----
+        trade_count = len(st.session_state.trades)
+        st.markdown(f"### Load Trades {'✅ ' + str(trade_count) if trade_count else ''}")
+
+        trades_loader = TradesLoader()
+        available_trade_files = trades_loader.list_trade_files()
+        unloaded_trade_files = [f for f in available_trade_files if f not in st.session_state.trades]
+
+        if unloaded_trade_files:
+            selected_trade = st.selectbox(
+                "Select trade file",
+                options=unloaded_trade_files,
+                label_visibility="collapsed",
+                key="trade_file_select",
+            )
+            if st.button("Load Trades", type="primary", width="stretch"):
+                try:
+                    tdf = trades_loader.load(selected_trade)
+                    st.session_state.trades[selected_trade] = tdf
+                    st.session_state.trades_loaded_files.add(selected_trade)
+                    st.session_state.cached_trades_analyzer = None
+                    st.toast(f"Loaded trades: {selected_trade}", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error loading trades: {e}")
+        else:
+            if available_trade_files:
+                st.info("All trade files loaded")
+            else:
+                st.caption("No trade files in data/trades/")
+
+        uploaded_trade_files = st.file_uploader(
+            "Upload trade CSV",
+            type=["csv"],
+            accept_multiple_files=True,
+            help="QuantConnect trade export CSV",
+            label_visibility="collapsed",
+            key="trade_uploader",
+        )
+        if uploaded_trade_files:
+            new_trades = False
+            for tf in uploaded_trade_files:
+                tname = Path(tf.name).stem
+                if tname not in st.session_state.trades:
+                    try:
+                        tdf = trades_loader.load_from_bytes(tf.getvalue(), tf.name)
+                        st.session_state.trades[tname] = tdf
+                        st.session_state.trades_loaded_files.add(tf.name)
+                        st.session_state.cached_trades_analyzer = None
+                        st.toast(f"Loaded trades: {tname}", icon="✅")
+                        new_trades = True
+                    except Exception as e:
+                        st.error(f"Error loading {tf.name}: {e}")
+            if new_trades:
+                st.rerun()
+
+        if st.session_state.trades:
+            st.markdown("### Loaded Trades")
+            for tname, tdf in list(st.session_state.trades.items()):
+                with st.expander(f"📋 {tname}", expanded=True):
+                    tc1, tc2, tc3 = st.columns(3)
+                    with tc1:
+                        st.caption("Trades")
+                        st.markdown(f"**{len(tdf):,}**")
+                    with tc2:
+                        wr = tdf["IsWin"].mean() if len(tdf) > 0 else 0
+                        st.caption("Win Rate")
+                        st.markdown(f"**{wr:.1%}**")
+                    with tc3:
+                        tpnl = tdf["P&L"].sum()
+                        color = "positive" if tpnl >= 0 else "negative"
+                        st.caption("Total P&L")
+                        st.markdown(f'<span class="stat-value {color}" style="font-size:1rem">${tpnl:,.0f}</span>', unsafe_allow_html=True)
+
+                    if st.button("Remove", key=f"remove_trade_{tname}", type="secondary", width="stretch"):
+                        del st.session_state.trades[tname]
+                        st.session_state.trades_loaded_files.discard(tname)
+                        st.session_state.cached_trades_analyzer = None
                         st.rerun()
 
         st.markdown("---")
@@ -2141,12 +2230,12 @@ def render_correlation_tab():
                     windows=list(range(20, 260, 20)),
                     use_residuals=True,
                 )
-                st.plotly_chart(interactive_fig, use_container_width=True)
+                st.plotly_chart(interactive_fig, width="stretch")
             except Exception as e:
                 st.warning(f"Interactive plot unavailable: {e}")
                 st.plotly_chart(
                     analyzer.plot_rolling_correlation(window=rolling_window, use_residuals=True),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             # Rolling stats summary
@@ -2163,7 +2252,7 @@ def render_correlation_tab():
                     "Max": f"{rolling_result.max_correlation[pair]:.3f}",
                     "Range": f"{rolling_result.max_correlation[pair] - rolling_result.min_correlation[pair]:.3f}",
                 })
-            st.dataframe(pd.DataFrame(stats_data), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(stats_data), width="stretch", hide_index=True)
 
         # Tab 4: Tail Dependence
         with corr_tabs[3]:
@@ -2197,7 +2286,7 @@ def render_correlation_tab():
                 - Positive asymmetry: Worst case for portfolio protection
                 """)
 
-            st.plotly_chart(analyzer.plot_tail_dependence(), use_container_width=True)
+            st.plotly_chart(analyzer.plot_tail_dependence(), width="stretch")
 
             # Tail dependence at 5%
             tail_dep = analyzer.estimate_tail_dependence(quantile=0.05)
@@ -2224,7 +2313,7 @@ def render_correlation_tab():
                     "Asymmetry": f"{asymmetry:+.3f}",
                     "Assessment": interpretation,
                 })
-            st.dataframe(pd.DataFrame(tail_data), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(tail_data), width="stretch", hide_index=True)
 
             # PIT Validation Section
             st.markdown("---")
@@ -2268,7 +2357,7 @@ def render_correlation_tab():
                     highlight_validation,
                     subset=["KS Pass", "AD Pass", "CvM Pass", "χ² Pass", "Uniform"]
                 )
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                st.dataframe(styled_df, width="stretch", hide_index=True)
 
                 # Overall assessment
                 all_valid = all(r.all_tests_passed for r in pit_validation.values())
@@ -2282,7 +2371,7 @@ def render_correlation_tab():
 
             # PIT diagnostics plot
             st.markdown("#### Visual Diagnostics")
-            st.plotly_chart(analyzer.plot_pit_diagnostics(), use_container_width=True)
+            st.plotly_chart(analyzer.plot_pit_diagnostics(), width="stretch")
 
         # Tab 5: Copula Analysis
         with corr_tabs[4]:
@@ -2349,7 +2438,7 @@ def render_correlation_tab():
                     summary = copula_analyzer.get_summary_table()
                     st.dataframe(
                         summary.style.highlight_min(subset=["AIC", "BIC"], color="#d4edda"),
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                     )
 
@@ -2389,7 +2478,7 @@ def render_correlation_tab():
 
                         st.dataframe(
                             gof_df.style.applymap(highlight_gof, subset=["Valid"]),
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True,
                         )
                     except Exception as e:
@@ -2398,14 +2487,14 @@ def render_correlation_tab():
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("#### Contour Plot")
-                        st.plotly_chart(copula_analyzer.plot_copula_contour(best.family), use_container_width=True)
+                        st.plotly_chart(copula_analyzer.plot_copula_contour(best.family), width="stretch")
 
                     with col2:
                         st.markdown("#### Tail Scatter")
-                        st.plotly_chart(copula_analyzer.plot_tail_scatter(), use_container_width=True)
+                        st.plotly_chart(copula_analyzer.plot_tail_scatter(), width="stretch")
 
                     st.markdown("#### Model Comparison")
-                    st.plotly_chart(copula_analyzer.plot_model_comparison_bars(), use_container_width=True)
+                    st.plotly_chart(copula_analyzer.plot_model_comparison_bars(), width="stretch")
 
         # Tab 6: 3D Copula Surfaces
         with corr_tabs[5]:
@@ -2492,15 +2581,140 @@ def _prepare_metrics_json(strategy_returns_values, strategy_returns_index, bench
     return pd.Series(metrics.to_dict()).to_json(indent=2)
 
 
+def _get_trades_analyzer() -> TradesAnalyzer:
+    """Return a cached TradesAnalyzer for the current session trades."""
+    cached = st.session_state.cached_trades_analyzer
+    if cached is None or not isinstance(cached, TradesAnalyzer):
+        st.session_state.cached_trades_analyzer = TradesAnalyzer(st.session_state.trades)
+    return st.session_state.cached_trades_analyzer
+
+
+def render_trades_tab():
+    """Render the Trades analysis tab."""
+    if not st.session_state.trades:
+        st.markdown("""
+        <div class="info-box">
+            <div class="info-box-icon">📋</div>
+            <div class="info-box-content">
+                <div class="info-box-title">No Trades Loaded</div>
+                <p class="info-box-text">Load trade files from the sidebar to analyze individual trades.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
+    analyzer = _get_trades_analyzer()
+    stats = analyzer.calculate_summary_stats()
+
+    # ---- Metric cards: 2 rows x 4 cols ----
+    r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+    with r1c1:
+        st.metric("Total Trades", f"{stats.total_trades:,}")
+    with r1c2:
+        st.metric("Win Rate", f"{stats.win_rate:.1%}")
+    with r1c3:
+        color = "+" if stats.net_pnl >= 0 else ""
+        st.metric("Net P&L", f"${stats.net_pnl:,.0f}")
+    with r1c4:
+        st.metric("Avg P&L", f"${stats.avg_pnl:,.0f}")
+
+    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+    with r2c1:
+        st.metric("Max Win", f"${stats.max_win:,.0f}")
+    with r2c2:
+        st.metric("Max Loss", f"${stats.max_loss:,.0f}")
+    with r2c3:
+        st.metric("Avg Holding", f"{stats.avg_holding_hours:.1f}h")
+    with r2c4:
+        st.metric("Streaks", f"W{stats.longest_win_streak} / L{stats.longest_loss_streak}")
+
+    st.markdown("---")
+
+    # ---- Sub-tabs ----
+    sub_tabs = st.tabs([
+        "Equity Curve", "P&L Distribution", "Cumulative P&L", "Sequential P&L",
+        "Calendar Analysis", "Rolling Win Rate", "Holding Periods",
+        "Heatmap", "Trade Scatter", "MAE / MFE", "Risk / Reward", "Trade Log",
+    ])
+
+    with sub_tabs[0]:
+        st.plotly_chart(analyzer.plot_equity_curve(), width="stretch")
+
+    with sub_tabs[1]:
+        st.plotly_chart(analyzer.plot_pnl_distribution(), width="stretch")
+
+    with sub_tabs[2]:
+        st.plotly_chart(analyzer.plot_cumulative_pnl(), width="stretch")
+
+    with sub_tabs[3]:
+        st.plotly_chart(analyzer.plot_pnl_sequential(), width="stretch")
+
+    with sub_tabs[4]:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.plotly_chart(analyzer.plot_pnl_by_day_of_week(), width="stretch")
+        with col_b:
+            st.plotly_chart(analyzer.plot_pnl_by_hour(), width="stretch")
+        st.plotly_chart(analyzer.plot_pnl_by_month(), width="stretch")
+        st.plotly_chart(analyzer.plot_win_loss_streaks(), width="stretch")
+
+    with sub_tabs[5]:
+        rolling_window = st.slider("Window size (trades)", 10, 100, 30, key="rolling_wr_window")
+        st.plotly_chart(analyzer.plot_rolling_win_rate(window=rolling_window), width="stretch")
+
+    with sub_tabs[6]:
+        st.plotly_chart(analyzer.plot_holding_period_distribution(), width="stretch")
+        st.plotly_chart(analyzer.plot_drawdown_distribution(), width="stretch")
+
+    with sub_tabs[7]:
+        st.plotly_chart(analyzer.plot_pnl_heatmap(), width="stretch")
+
+    with sub_tabs[8]:
+        st.plotly_chart(analyzer.plot_trade_scatter(), width="stretch")
+
+    with sub_tabs[9]:
+        st.plotly_chart(analyzer.plot_mae_mfe(), width="stretch")
+
+    with sub_tabs[10]:
+        st.plotly_chart(analyzer.plot_risk_reward(), width="stretch")
+
+    with sub_tabs[11]:
+        st.markdown("### Trade Log")
+        display_df = analyzer.combined.copy()
+        time_cols = ["Entry Time", "Exit Time"]
+        for tc in time_cols:
+            if tc in display_df.columns:
+                display_df[tc] = display_df[tc].dt.strftime("%Y-%m-%d %H:%M")
+        st.dataframe(display_df, width="stretch", height=500)
+
+    # ---- Per-strategy comparison ----
+    if len(st.session_state.trades) > 1:
+        st.markdown("---")
+        st.markdown("### Strategy Comparison")
+        st.plotly_chart(analyzer.plot_strategy_comparison(), width="stretch")
+
+        per_stats = analyzer.calculate_per_strategy_stats()
+        st.dataframe(per_stats.style.format({
+            "win_rate": "{:.1%}",
+            "total_pnl": "${:,.0f}",
+            "net_pnl": "${:,.0f}",
+            "avg_pnl": "${:,.0f}",
+            "max_win": "${:,.0f}",
+            "max_loss": "${:,.0f}",
+            "profit_factor": "{:.2f}",
+            "avg_holding_hours": "{:.1f}",
+        }), width="stretch")
+
+
 def render_export_tab():
     """Render the export tab."""
-    if not st.session_state.analysis_complete:
+    if not st.session_state.analysis_complete and not st.session_state.trades:
         st.markdown("""
         <div class="info-box">
             <div class="info-box-icon">⚠️</div>
             <div class="info-box-content">
-                <div class="info-box-title">Analysis Required</div>
-                <p class="info-box-text">Please run the analysis first to export results.</p>
+                <div class="info-box-title">No Data to Export</div>
+                <p class="info-box-text">Run the analysis or load trades to export results.</p>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -2637,6 +2851,48 @@ def render_export_tab():
 
         st.caption("💡 Charts can be exported directly using the camera icon in the plot toolbar.")
 
+    # ---- Trade Data Export ----
+    if st.session_state.trades:
+        st.markdown("---")
+        st.markdown("""
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon primary">📋</div>
+                <div>
+                    <h4 class="card-title">Trade Data Export</h4>
+                    <p class="card-subtitle">Download trade logs</p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        trade_analyzer = _get_trades_analyzer()
+        combined_trades = trade_analyzer.combined
+
+        # Combined trades CSV
+        combined_buf = io.StringIO()
+        combined_trades.to_csv(combined_buf, index=False)
+        st.download_button(
+            label="Download Combined Trades (CSV)",
+            data=combined_buf.getvalue(),
+            file_name="combined_trades.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+
+        # Split trades CSV
+        split_trades = TradesLoader.split_trades(combined_trades)
+        split_buf = io.StringIO()
+        split_trades.to_csv(split_buf, index=False)
+        st.download_button(
+            label="Download Split Trades (CSV)",
+            data=split_buf.getvalue(),
+            file_name="split_trades.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
 # =============================================================================
 # MAIN APPLICATION
@@ -2652,7 +2908,7 @@ def main():
 
     benchmark_ticker, initial_capital = render_sidebar()
 
-    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "📉 VRP Analysis", "🔗 Correlation", "💾 Export"])
+    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "📉 VRP Analysis", "🔗 Correlation", "📋 Trades", "💾 Export"])
 
     with tabs[0]:
         render_upload_tab()
@@ -2667,12 +2923,14 @@ def main():
     with tabs[5]:
         render_correlation_tab()
     with tabs[6]:
+        render_trades_tab()
+    with tabs[7]:
         render_export_tab()
 
     # Footer
     st.markdown("""
     <div class="app-footer">
-        Built with Streamlit • Performance Analysis v2.3 (with Correlation & Copula Analysis)
+        Built with Streamlit • Performance Analysis v2.4 (with Trade Analysis)
     </div>
     """, unsafe_allow_html=True)
 

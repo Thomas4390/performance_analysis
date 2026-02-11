@@ -24,6 +24,7 @@ from .config import (
     MARKET_DATA_DIR,
     BACKTESTS_DIR,
     CACHE_DIR,
+    TRADES_DIR,
     REPORTS_DIR,
     PLOTS_DIR,
     # Enums
@@ -81,6 +82,10 @@ from .report_generator import (
     load_returns_for_report,
 )
 
+# Trade analysis
+from .trades_loader import TradesLoader
+from .trades_analysis import TradesAnalyzer, TradeSummaryStats
+
 
 __version__ = "2.0.0"
 
@@ -93,6 +98,7 @@ __all__ = [
     "MARKET_DATA_DIR",
     "BACKTESTS_DIR",
     "CACHE_DIR",
+    "TRADES_DIR",
     "REPORTS_DIR",
     "PLOTS_DIR",
     "FileFormat",
@@ -129,4 +135,8 @@ __all__ = [
     "ReportGenerator",
     "PerformanceMetrics",
     "load_returns_for_report",
+    # Trade analysis
+    "TradesLoader",
+    "TradesAnalyzer",
+    "TradeSummaryStats",
 ]
