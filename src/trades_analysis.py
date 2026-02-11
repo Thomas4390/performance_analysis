@@ -783,9 +783,9 @@ class TradesAnalyzer:
             showlegend=True,
         ))
         fig.update_layout(
-            title="MAE / MFE — Drawdown vs P&L",
-            xaxis_title="Max Adverse Excursion / Drawdown ($)",
-            yaxis_title="P&L ($)",
+            title="MAE / MFE",
+            xaxis_title="MAE — Max Adverse Excursion ($)",
+            yaxis_title="MFE — Max Favorable Excursion / P&L ($)",
             template=PLOT_TEMPLATE,
             height=550,
         )
