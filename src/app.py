@@ -2590,6 +2590,7 @@ def render_trades_tab():
         "Equity Curve", "P&L Distribution", "Cumulative P&L", "Sequential P&L",
         "Calendar Analysis", "Rolling Win Rate", "Holding Periods",
         "Heatmap", "Trade Scatter", "MAE / MFE", "Risk / Reward", "Trade Log",
+        "VIX Analysis",
     ])
 
     with sub_tabs[0]:
@@ -2640,6 +2641,39 @@ def render_trades_tab():
             if tc in display_df.columns:
                 display_df[tc] = display_df[tc].dt.strftime("%Y-%m-%d %H:%M")
         st.dataframe(display_df, width="stretch", height=500)
+
+    with sub_tabs[12]:
+        vix = st.session_state.get("vix")
+        if vix is None:
+            _render_info_box(
+                "⚠️", "VIX Data Required",
+                "Run the main analysis first to load VIX data, then return here.",
+            )
+        else:
+            regime_stats = analyzer.calculate_stats_by_vix_regime(vix, DEFAULT_VIX_REGIMES)
+            if not regime_stats.empty:
+                st.markdown("#### Performance by VIX Regime")
+                st.dataframe(
+                    regime_stats.style.format({
+                        "Win Rate": "{:.1%}",
+                        "Total P&L": "${:,.0f}",
+                        "Avg P&L": "${:,.0f}",
+                        "Profit Factor": "{:.2f}",
+                        "Avg Holding (h)": "{:.1f}",
+                    }),
+                    width="stretch",
+                )
+            col_bar, col_scatter = st.columns(2)
+            with col_bar:
+                st.plotly_chart(
+                    analyzer.plot_pnl_by_vix_regime(vix, DEFAULT_VIX_REGIMES),
+                    width="stretch",
+                )
+            with col_scatter:
+                st.plotly_chart(
+                    analyzer.plot_trade_scatter_by_vix(vix, DEFAULT_VIX_REGIMES),
+                    width="stretch",
+                )
 
     # ---- Per-strategy comparison ----
     if selected_strategy == "All Strategies" and len(st.session_state.trades) > 1:

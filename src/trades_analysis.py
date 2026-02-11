@@ -22,7 +22,7 @@ from plotly.subplots import make_subplots
 
 from config import (
     PLOT_TEMPLATE, PLOT_COLORS, PLOT_HEIGHT_STANDARD, PLOT_HEIGHT_TALL,
-    DEFAULT_ROLLING_WINDOWS,
+    DEFAULT_ROLLING_WINDOWS, DEFAULT_VIX_REGIMES, VixRegimeConfig,
 )
 
 # Numba-accelerated helpers (graceful fallback)
@@ -842,6 +842,192 @@ class TradesAnalyzer:
             template=PLOT_TEMPLATE,
             barmode="group",
             height=600,
+        )
+        return fig
+
+    # -----------------------------------------------------------------
+    # VIX regime analysis
+    # -----------------------------------------------------------------
+
+    def _assign_vix_regimes(
+        self,
+        vix: pd.Series,
+        regimes: tuple[VixRegimeConfig, ...] = DEFAULT_VIX_REGIMES,
+    ) -> pd.DataFrame:
+        """Map each trade's entry date to a VIX level and regime.
+
+        Returns a copy of ``_combined`` with ``VIX_Level`` and ``VIX_Regime``
+        columns added.
+        """
+        df = self._combined.copy()
+        if df.empty:
+            df["VIX_Level"] = pd.Series(dtype=float)
+            df["VIX_Regime"] = pd.Series(dtype=str)
+            return df
+
+        # Normalise trade entry dates to tz-naive date for alignment
+        entry_dates = df["Entry Time"].dt.tz_localize(None).dt.normalize()
+
+        # Forward-fill VIX to align with trade entry dates
+        vix_idx = vix.index.tz_localize(None) if vix.index.tz is not None else vix.index
+        vix_clean = pd.Series(vix.values, index=vix_idx).sort_index()
+        df["VIX_Level"] = vix_clean.reindex(entry_dates, method="ffill").values
+
+        # Classify into regimes
+        regime_names = []
+        for level in df["VIX_Level"]:
+            name = regimes[-1].name  # fallback
+            if pd.isna(level):
+                name = "Unknown"
+            else:
+                for r in regimes:
+                    if r.lower <= level < r.upper:
+                        name = r.name
+                        break
+            regime_names.append(name)
+        df["VIX_Regime"] = regime_names
+        return df
+
+    def calculate_stats_by_vix_regime(
+        self,
+        vix: pd.Series,
+        regimes: tuple[VixRegimeConfig, ...] = DEFAULT_VIX_REGIMES,
+    ) -> pd.DataFrame:
+        """Per-regime summary table: count, win rate, P&L, profit factor, avg holding."""
+        df = self._assign_vix_regimes(vix, regimes)
+        if df.empty or "VIX_Regime" not in df.columns:
+            return pd.DataFrame()
+
+        # Keep regime ordering from config
+        regime_order = [r.name for r in regimes]
+
+        rows = []
+        for regime in regime_order:
+            grp = df[df["VIX_Regime"] == regime]
+            if grp.empty:
+                continue
+            n = len(grp)
+            wins = grp["IsWin"].sum()
+            win_rate = wins / n if n > 0 else 0.0
+            total_pnl = grp["P&L"].sum()
+            avg_pnl = grp["P&L"].mean()
+            gross_wins = grp.loc[grp["IsWin"], "P&L"].sum()
+            gross_losses = abs(grp.loc[~grp["IsWin"], "P&L"].sum())
+            pf = gross_wins / gross_losses if gross_losses > 0 else float("inf")
+            avg_holding = (
+                grp["Holding Hours"].mean()
+                if "Holding Hours" in grp.columns
+                else 0.0
+            )
+            rows.append({
+                "Regime": regime,
+                "Trades": n,
+                "Win Rate": win_rate,
+                "Total P&L": total_pnl,
+                "Avg P&L": avg_pnl,
+                "Profit Factor": pf,
+                "Avg Holding (h)": avg_holding,
+            })
+
+        return pd.DataFrame(rows).set_index("Regime") if rows else pd.DataFrame()
+
+    def plot_pnl_by_vix_regime(
+        self,
+        vix: pd.Series,
+        regimes: tuple[VixRegimeConfig, ...] = DEFAULT_VIX_REGIMES,
+    ) -> go.Figure:
+        """Bar chart of total P&L per VIX regime."""
+        stats = self.calculate_stats_by_vix_regime(vix, regimes)
+        if stats.empty:
+            return go.Figure()
+
+        color_map = {r.name: r.color for r in regimes}
+        colors = [color_map.get(name, "#888") for name in stats.index]
+
+        customdata = np.column_stack([
+            stats["Trades"].values,
+            (stats["Win Rate"].values * 100).round(1),
+            stats["Avg P&L"].values,
+        ])
+        fig = go.Figure(go.Bar(
+            x=stats.index,
+            y=stats["Total P&L"],
+            marker_color=colors,
+            customdata=customdata,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Total P&L: $%{y:,.0f}<br>"
+                "Trades: %{customdata[0]}<br>"
+                "Win Rate: %{customdata[1]:.1f}%<br>"
+                "Avg P&L: $%{customdata[2]:,.0f}"
+                "<extra></extra>"
+            ),
+        ))
+        fig.update_layout(
+            title="Total P&L by VIX Regime",
+            xaxis_title="VIX Regime",
+            yaxis_title="Total P&L ($)",
+            template=PLOT_TEMPLATE,
+            height=PLOT_HEIGHT_STANDARD,
+        )
+        return fig
+
+    def plot_trade_scatter_by_vix(
+        self,
+        vix: pd.Series,
+        regimes: tuple[VixRegimeConfig, ...] = DEFAULT_VIX_REGIMES,
+    ) -> go.Figure:
+        """Scatter of P&L vs VIX level at entry, coloured by regime."""
+        df = self._assign_vix_regimes(vix, regimes)
+        if df.empty:
+            return go.Figure()
+
+        color_map = {r.name: r.color for r in regimes}
+        fig = go.Figure()
+
+        # One trace per regime for legend
+        regime_order = [r.name for r in regimes]
+        for regime in regime_order:
+            grp = df[df["VIX_Regime"] == regime]
+            if grp.empty:
+                continue
+            entry_dates = grp["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+            customdata = np.column_stack([
+                entry_dates,
+                grp["VIX_Level"].round(2).astype(str),
+            ])
+            fig.add_trace(go.Scatter(
+                x=grp["VIX_Level"],
+                y=grp["P&L"],
+                mode="markers",
+                name=regime,
+                marker=dict(color=color_map.get(regime, "#888"), opacity=0.6, size=7),
+                customdata=customdata,
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "VIX: %{customdata[1]}<br>"
+                    "P&L: $%{y:,.0f}"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            ))
+
+        # Regime boundary lines
+        boundaries = sorted({r.lower for r in regimes if r.lower > 0}
+                            | {r.upper for r in regimes if r.upper < float("inf")})
+        for b in boundaries:
+            fig.add_vline(
+                x=b, line_dash="dash", line_color="grey", line_width=1,
+                annotation_text=str(int(b)),
+                annotation_position="top",
+            )
+
+        fig.add_hline(y=0, line_color="grey", line_dash="dot", line_width=1)
+        fig.update_layout(
+            title="Trade P&L vs VIX at Entry",
+            xaxis_title="VIX Level at Entry",
+            yaxis_title="P&L ($)",
+            template=PLOT_TEMPLATE,
+            height=PLOT_HEIGHT_STANDARD,
         )
         return fig
 
