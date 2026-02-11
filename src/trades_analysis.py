@@ -772,6 +772,7 @@ class TradesAnalyzer:
             y=df["P&L"],
             mode="markers",
             marker=dict(color=colors, opacity=0.5, size=6),
+            name="Trades",
             hovertemplate="Drawdown: $%{x:,.0f}<br>P&L: $%{y:,.0f}<extra></extra>",
         ))
         # Add diagonal reference line (breakeven: P&L = -Drawdown)
