@@ -83,15 +83,6 @@ from .report_generator import (
     load_returns_for_report,
 )
 
-# VRP analysis
-from .vrp_analysis import VRPAnalyzer, DEFAULT_VRP_REGIMES
-
-# Correlation analysis
-from .correlation_analysis import CorrelationAnalyzer, GARCHFilter
-
-# Copula analysis
-from .copula_analysis import CopulaAnalyzer, MultiStrategyCopulaAnalyzer
-
 # Trade analysis
 from .trades_loader import TradesLoader
 from .trades_analysis import TradesAnalyzer, TradeSummaryStats
@@ -146,15 +137,6 @@ __all__ = [
     "ReportGenerator",
     "PerformanceMetrics",
     "load_returns_for_report",
-    # VRP analysis
-    "VRPAnalyzer",
-    "DEFAULT_VRP_REGIMES",
-    # Correlation analysis
-    "CorrelationAnalyzer",
-    "GARCHFilter",
-    # Copula analysis
-    "CopulaAnalyzer",
-    "MultiStrategyCopulaAnalyzer",
     # Trade analysis
     "TradesLoader",
     "TradesAnalyzer",
