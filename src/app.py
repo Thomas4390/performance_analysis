@@ -2626,9 +2626,21 @@ def render_trades_tab():
 
     with sub_tabs[8]:
         st.plotly_chart(analyzer.plot_trade_scatter(), width="stretch")
+        vix_3d = st.session_state.get("vix")
+        if vix_3d is not None:
+            st.plotly_chart(
+                analyzer.plot_trade_scatter_3d_vix(vix_3d, DEFAULT_VIX_REGIMES),
+                width="stretch",
+            )
 
     with sub_tabs[9]:
         st.plotly_chart(analyzer.plot_mae_mfe(), width="stretch")
+        vix_3d = st.session_state.get("vix")
+        if vix_3d is not None:
+            st.plotly_chart(
+                analyzer.plot_mae_mfe_3d_vix(vix_3d, DEFAULT_VIX_REGIMES),
+                width="stretch",
+            )
 
     with sub_tabs[10]:
         st.plotly_chart(analyzer.plot_risk_reward(), width="stretch")
@@ -2674,6 +2686,10 @@ def render_trades_tab():
                     analyzer.plot_trade_scatter_by_vix(vix, DEFAULT_VIX_REGIMES),
                     width="stretch",
                 )
+            st.plotly_chart(
+                analyzer.plot_vix_holding_pnl_3d(vix, DEFAULT_VIX_REGIMES),
+                width="stretch",
+            )
 
     # ---- Per-strategy comparison ----
     if selected_strategy == "All Strategies" and len(st.session_state.trades) > 1:

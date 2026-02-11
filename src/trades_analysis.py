@@ -1031,6 +1031,162 @@ class TradesAnalyzer:
         )
         return fig
 
+    def plot_trade_scatter_3d_vix(
+        self,
+        vix: pd.Series,
+        regimes: tuple[VixRegimeConfig, ...] = DEFAULT_VIX_REGIMES,
+    ) -> go.Figure:
+        """3D scatter: Holding Period × P&L × VIX, coloured by regime."""
+        df = self._assign_vix_regimes(vix, regimes)
+        if df.empty or "Holding Hours" not in df.columns:
+            return go.Figure()
+
+        color_map = {r.name: r.color for r in regimes}
+        fig = go.Figure()
+
+        for regime in [r.name for r in regimes]:
+            grp = df[df["VIX_Regime"] == regime]
+            if grp.empty:
+                continue
+            entry_dates = grp["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+            fig.add_trace(go.Scatter3d(
+                x=grp["Holding Hours"],
+                y=grp["P&L"],
+                z=grp["VIX_Level"],
+                mode="markers",
+                name=regime,
+                marker=dict(
+                    color=color_map.get(regime, "#888"),
+                    size=4,
+                    opacity=0.7,
+                ),
+                text=entry_dates,
+                hovertemplate=(
+                    "<b>%{text}</b><br>"
+                    "Holding: %{x:.1f}h<br>"
+                    "P&L: $%{y:,.0f}<br>"
+                    "VIX: %{z:.1f}"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            ))
+
+        fig.update_layout(
+            title="Trade Scatter 3D (Holding × P&L × VIX)",
+            scene=dict(
+                xaxis_title="Holding Period (h)",
+                yaxis_title="P&L ($)",
+                zaxis_title="VIX Level",
+            ),
+            template=PLOT_TEMPLATE,
+            height=PLOT_HEIGHT_TALL,
+            margin=dict(l=0, r=0, b=0, t=40),
+        )
+        return fig
+
+    def plot_mae_mfe_3d_vix(
+        self,
+        vix: pd.Series,
+        regimes: tuple[VixRegimeConfig, ...] = DEFAULT_VIX_REGIMES,
+    ) -> go.Figure:
+        """3D scatter: Drawdown × P&L × VIX, coloured by regime."""
+        df = self._assign_vix_regimes(vix, regimes)
+        if df.empty or "Drawdown" not in df.columns:
+            return go.Figure()
+
+        color_map = {r.name: r.color for r in regimes}
+        fig = go.Figure()
+
+        for regime in [r.name for r in regimes]:
+            grp = df[df["VIX_Regime"] == regime]
+            if grp.empty:
+                continue
+            entry_dates = grp["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+            fig.add_trace(go.Scatter3d(
+                x=grp["Drawdown"],
+                y=grp["P&L"],
+                z=grp["VIX_Level"],
+                mode="markers",
+                name=regime,
+                marker=dict(
+                    color=color_map.get(regime, "#888"),
+                    size=4,
+                    opacity=0.7,
+                ),
+                text=entry_dates,
+                hovertemplate=(
+                    "<b>%{text}</b><br>"
+                    "Drawdown: $%{x:,.0f}<br>"
+                    "P&L: $%{y:,.0f}<br>"
+                    "VIX: %{z:.1f}"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            ))
+
+        fig.update_layout(
+            title="MAE / MFE 3D (Drawdown × P&L × VIX)",
+            scene=dict(
+                xaxis_title="MAE — Drawdown ($)",
+                yaxis_title="P&L ($)",
+                zaxis_title="VIX Level",
+            ),
+            template=PLOT_TEMPLATE,
+            height=PLOT_HEIGHT_TALL,
+            margin=dict(l=0, r=0, b=0, t=40),
+        )
+        return fig
+
+    def plot_vix_holding_pnl_3d(
+        self,
+        vix: pd.Series,
+        regimes: tuple[VixRegimeConfig, ...] = DEFAULT_VIX_REGIMES,
+    ) -> go.Figure:
+        """3D scatter: VIX × Holding Hours × P&L, coloured by regime."""
+        df = self._assign_vix_regimes(vix, regimes)
+        if df.empty or "Holding Hours" not in df.columns:
+            return go.Figure()
+
+        color_map = {r.name: r.color for r in regimes}
+        fig = go.Figure()
+
+        for regime in [r.name for r in regimes]:
+            grp = df[df["VIX_Regime"] == regime]
+            if grp.empty:
+                continue
+            entry_dates = grp["Entry Time"].dt.strftime("%Y-%m-%d %H:%M")
+            fig.add_trace(go.Scatter3d(
+                x=grp["VIX_Level"],
+                y=grp["Holding Hours"],
+                z=grp["P&L"],
+                mode="markers",
+                name=regime,
+                marker=dict(
+                    color=color_map.get(regime, "#888"),
+                    size=4,
+                    opacity=0.7,
+                ),
+                text=entry_dates,
+                hovertemplate=(
+                    "<b>%{text}</b><br>"
+                    "VIX: %{x:.1f}<br>"
+                    "Holding: %{y:.1f}h<br>"
+                    "P&L: $%{z:,.0f}"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            ))
+
+        fig.update_layout(
+            title="VIX × Holding Period × P&L (3D)",
+            scene=dict(
+                xaxis_title="VIX Level",
+                yaxis_title="Holding Period (h)",
+                zaxis_title="P&L ($)",
+            ),
+            template=PLOT_TEMPLATE,
+            height=PLOT_HEIGHT_TALL,
+            margin=dict(l=0, r=0, b=0, t=40),
+        )
+        return fig
+
     # -----------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------
