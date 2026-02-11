@@ -184,3 +184,36 @@ class TradesLoader:
         if not split_df.empty:
             split_df = split_df.sort_values("Timestamp").reset_index(drop=True)
         return split_df
+
+    @staticmethod
+    def format_for_export(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Format trades for export: one row per leg, simplified columns.
+
+        Splits each round-trip trade into entry/exit rows and keeps only:
+        - Date: entry or exit day (date only, no time)
+        - Symbol: option root (e.g. ``SPXW`` from ``SPXW  190114P02460000``)
+        - Direction: ``BUY`` or ``SELL`` (exit uses opposite direction)
+        - Price: entry or exit price
+
+        Returns:
+            DataFrame with columns ``Date``, ``Symbol``, ``Direction``, ``Price``.
+        """
+        import re
+
+        split = TradesLoader.split_trades(df)
+        if split.empty:
+            return pd.DataFrame(columns=["Date", "Symbol", "Direction", "Price"])
+
+        # Date: day only
+        split["Date"] = pd.to_datetime(split["Timestamp"]).dt.date
+
+        # Symbol root: strip OCC-style suffix (digits + P/C + strike)
+        split["Symbol"] = split["Symbol"].apply(
+            lambda s: re.split(r"\s+\d", str(s).strip(), maxsplit=1)[0].strip()
+        )
+
+        # Direction: uppercase
+        split["Direction"] = split["Direction"].str.upper()
+
+        return split[["Date", "Symbol", "Direction", "Price"]].reset_index(drop=True)

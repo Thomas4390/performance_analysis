@@ -2760,6 +2760,17 @@ def render_export_tab():
                 width="stretch",
             )
 
+        if st.session_state.trades:
+            combined_trades = pd.concat(st.session_state.trades.values(), ignore_index=True)
+            export_df = TradesLoader.format_for_export(combined_trades)
+            st.download_button(
+                label="Download Trades (CSV)",
+                data=export_df.to_csv(index=False),
+                file_name="trades_export.csv",
+                mime="text/csv",
+                width="stretch",
+            )
+
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
