@@ -195,18 +195,19 @@ class TradesLoader:
         ``SPXW  190114P02460000``).
 
         Returns:
-            DataFrame with columns: Timestamp, Symbol, Direction, Price
+            DataFrame with columns: Date, Symbol, Direction
         """
         import re
 
         split_df = TradesLoader.split_trades(df)
         if split_df.empty:
-            return pd.DataFrame(columns=["Timestamp", "Symbol", "Direction", "Price"])
+            return pd.DataFrame(columns=["Date", "Symbol", "Direction"])
 
+        split_df["Date"] = pd.to_datetime(split_df["Timestamp"]).dt.date
         split_df["Symbol"] = split_df["Symbol"].apply(
             lambda s: re.split(r"\s+\d", str(s).strip(), maxsplit=1)[0].strip()
         )
-        return split_df[["Timestamp", "Symbol", "Direction", "Price"]].reset_index(drop=True)
+        return split_df[["Date", "Symbol", "Direction"]].reset_index(drop=True)
 
     @staticmethod
     def format_for_export(df: pd.DataFrame) -> pd.DataFrame:
