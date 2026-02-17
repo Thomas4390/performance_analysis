@@ -2586,12 +2586,15 @@ def render_trades_tab():
     st.markdown("---")
 
     # ---- Sub-tabs ----
-    sub_tabs = st.tabs([
+    tab_names = [
         "Equity Curve", "P&L Distribution", "Cumulative P&L", "Sequential P&L",
         "Calendar Analysis", "Rolling Win Rate", "Holding Periods",
         "Heatmap", "Trade Scatter", "MAE / MFE", "Risk / Reward", "Trade Log",
         "VIX Analysis",
-    ])
+    ]
+    if selected_strategy == "All Strategies" and len(st.session_state.trades) > 1:
+        tab_names.append("Strategy Comparison")
+    sub_tabs = st.tabs(tab_names)
 
     with sub_tabs[0]:
         st.plotly_chart(analyzer.plot_equity_curve(), width="stretch")
@@ -2693,21 +2696,21 @@ def render_trades_tab():
 
     # ---- Per-strategy comparison ----
     if selected_strategy == "All Strategies" and len(st.session_state.trades) > 1:
-        st.markdown("---")
-        st.markdown("### Strategy Comparison")
-        st.plotly_chart(full_analyzer.plot_strategy_comparison(), width="stretch")
+        with sub_tabs[13]:
+            st.markdown("### Strategy Comparison")
+            st.plotly_chart(full_analyzer.plot_strategy_comparison(), width="stretch")
 
-        per_stats = full_analyzer.calculate_per_strategy_stats()
-        st.dataframe(per_stats.style.format({
-            "win_rate": "{:.1%}",
-            "total_pnl": "${:,.0f}",
-            "net_pnl": "${:,.0f}",
-            "avg_pnl": "${:,.0f}",
-            "max_win": "${:,.0f}",
-            "max_loss": "${:,.0f}",
-            "profit_factor": "{:.2f}",
-            "avg_holding_hours": "{:.1f}",
-        }), width="stretch")
+            per_stats = full_analyzer.calculate_per_strategy_stats()
+            st.dataframe(per_stats.style.format({
+                "win_rate": "{:.1%}",
+                "total_pnl": "${:,.0f}",
+                "net_pnl": "${:,.0f}",
+                "avg_pnl": "${:,.0f}",
+                "max_win": "${:,.0f}",
+                "max_loss": "${:,.0f}",
+                "profit_factor": "{:.2f}",
+                "avg_holding_hours": "{:.1f}",
+            }), width="stretch")
 
 
 def render_export_tab():
@@ -2867,6 +2870,18 @@ def render_export_tab():
             label="Download Split Trades (CSV)",
             data=split_buf.getvalue(),
             file_name="split_trades.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+
+        # Split trades clean CSV
+        split_clean = TradesLoader.split_trades_clean(combined_trades)
+        clean_buf = io.StringIO()
+        split_clean.to_csv(clean_buf, index=False)
+        st.download_button(
+            label="Download Split Trades Clean (CSV)",
+            data=clean_buf.getvalue(),
+            file_name="split_trades_clean.csv",
             mime="text/csv",
             width="stretch",
         )

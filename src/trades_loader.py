@@ -186,6 +186,29 @@ class TradesLoader:
         return split_df
 
     @staticmethod
+    def split_trades_clean(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Split trades into individual legs with simplified columns.
+
+        Like split_trades but drops Leg, Quantity, and Trade_Index,
+        and extracts the option root symbol (e.g. ``SPXW`` from
+        ``SPXW  190114P02460000``).
+
+        Returns:
+            DataFrame with columns: Timestamp, Symbol, Direction, Price
+        """
+        import re
+
+        split_df = TradesLoader.split_trades(df)
+        if split_df.empty:
+            return pd.DataFrame(columns=["Timestamp", "Symbol", "Direction", "Price"])
+
+        split_df["Symbol"] = split_df["Symbol"].apply(
+            lambda s: re.split(r"\s+\d", str(s).strip(), maxsplit=1)[0].strip()
+        )
+        return split_df[["Timestamp", "Symbol", "Direction", "Price"]].reset_index(drop=True)
+
+    @staticmethod
     def format_for_export(df: pd.DataFrame) -> pd.DataFrame:
         """
         Format trades for export: one row per leg, simplified columns.
