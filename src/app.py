@@ -1149,9 +1149,9 @@ def render_sidebar():
         st.markdown("### Or Upload Files")
         uploaded_files = st.file_uploader(
             "Drag and drop strategy files",
-            type=["ods", "xlsx", "xls", "csv"],
+            type=["ods", "xlsx", "xls", "csv", "txt"],
             accept_multiple_files=True,
-            help="Supported: ODS, XLSX, XLS, CSV",
+            help="Supported: ODS, XLSX, XLS, CSV, TXT",
             label_visibility="collapsed",
         )
 

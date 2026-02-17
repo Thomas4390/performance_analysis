@@ -1,7 +1,7 @@
 """
 Module for loading backtest data from various file formats.
 
-Supports: ODS, XLSX, XLS, CSV, Parquet
+Supports: ODS, XLSX, XLS, CSV, TXT, Parquet
 
 Usage:
     python backtest_loader.py [--data-dir DIR] [--output-dir DIR] [--backtest NAME]
@@ -45,6 +45,7 @@ class FileReader(ABC):
             FileFormat.XLSX: ExcelReader(),
             FileFormat.XLS: ExcelReader(),
             FileFormat.CSV: CsvReader(),
+            FileFormat.TXT: CsvReader(),
             FileFormat.PARQUET: ParquetReader(),
         }
         return readers[format]
@@ -94,7 +95,7 @@ class BacktestLoader:
     """
     Loader for backtest data from various file formats.
 
-    Supports ODS, XLSX, XLS, CSV, and Parquet files.
+    Supports ODS, XLSX, XLS, CSV, TXT, and Parquet files.
 
     Example:
         loader = BacktestLoader("data/raw")
@@ -102,7 +103,7 @@ class BacktestLoader:
         loader.save_parquet(df, "my_backtest")
     """
 
-    SUPPORTED_EXTENSIONS = {".ods", ".xlsx", ".xls", ".csv", ".parquet"}
+    SUPPORTED_EXTENSIONS = {".ods", ".xlsx", ".xls", ".csv", ".txt", ".parquet"}
 
     def __init__(
         self,
@@ -215,7 +216,7 @@ class BacktestLoader:
         filepath = Path(filename)
         format = FileFormat.from_extension(filepath)
 
-        if format == FileFormat.CSV:
+        if format in (FileFormat.CSV, FileFormat.TXT):
             df = pd.read_csv(io.BytesIO(data))
         elif format == FileFormat.PARQUET:
             df = pd.read_parquet(io.BytesIO(data))

@@ -48,6 +48,7 @@ class FileFormat(str, Enum):
     XLSX = "xlsx"
     XLS = "xls"
     CSV = "csv"
+    TXT = "txt"
     PARQUET = "parquet"
 
     @classmethod
