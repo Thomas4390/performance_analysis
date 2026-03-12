@@ -22,6 +22,7 @@ from config import (
     CACHE_DIR,
     MARKET_DATA_DIR,
     BENCHMARK_TICKERS,
+    ASSET_TICKERS,
     VIX_TICKER,
 )
 
@@ -37,6 +38,17 @@ LOCAL_DATA_FILES = {
     "DIA": MARKET_DATA_DIR / "dia.parquet",
     "VTI": MARKET_DATA_DIR / "vti.parquet",
     "VIX": MARKET_DATA_DIR / "vix.parquet",
+    # Asset tickers
+    "VOO": MARKET_DATA_DIR / "voo.parquet",
+    "VT": MARKET_DATA_DIR / "vt.parquet",
+    "IEFA": MARKET_DATA_DIR / "iefa.parquet",
+    "XIC.TO": MARKET_DATA_DIR / "xic.to.parquet",
+    "BND": MARKET_DATA_DIR / "bnd.parquet",
+    "GOVT": MARKET_DATA_DIR / "govt.parquet",
+    "GLD": MARKET_DATA_DIR / "gld.parquet",
+    "VNQ": MARKET_DATA_DIR / "vnq.parquet",
+    "SCHD": MARKET_DATA_DIR / "schd.parquet",
+    "USMV": MARKET_DATA_DIR / "usmv.parquet",
 }
 
 
@@ -366,6 +378,30 @@ class MarketDataDownloader:
             vix.reindex(common_idx),
         )
 
+    def download_asset_as_backtest(
+        self,
+        ticker: str,
+        start_date: Union[str, datetime] = "2010-01-01",
+        end_date: Optional[Union[str, datetime]] = None,
+    ) -> pd.DataFrame:
+        """
+        Download asset data and convert to backtest-compatible DataFrame.
+
+        Returns a DataFrame with columns: date, equity, daily_return, daily_return_decimal
+        compatible with BacktestLoader output format.
+        """
+        market_data = self.download_benchmark(ticker, start_date, end_date)
+        df = market_data.data.copy()
+
+        backtest_df = pd.DataFrame({
+            "date": df["date"],
+            "equity": df["close"],
+            "daily_return": df["close"].pct_change() * 100,
+            "daily_return_decimal": df["close"].pct_change(),
+        })
+        backtest_df = backtest_df.dropna(subset=["daily_return_decimal"]).reset_index(drop=True)
+        return backtest_df
+
     def save(
         self,
         market_data: MarketData,
@@ -558,6 +594,11 @@ def main():
         action="store_true",
         help="Skip VIX download.",
     )
+    parser.add_argument(
+        "--assets",
+        action="store_true",
+        help="Download all asset tickers (VOO, VT, IEFA, XIC.TO, BND, GOVT, GLD, VNQ, SCHD, USMV).",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -592,6 +633,15 @@ def main():
             success_count += 1
         else:
             fail_count += 1
+
+    # Download asset tickers
+    if args.assets:
+        print(f"\nDownloading ASSET tickers to {output_dir}")
+        for ticker in ASSET_TICKERS:
+            if download_single_benchmark(downloader, ticker, args.start, end_date, output_dir):
+                success_count += 1
+            else:
+                fail_count += 1
 
     # Summary
     print("\n" + "-" * 60)

@@ -104,6 +104,19 @@ BENCHMARK_TICKERS = {
     "VTI": "Total Stock Market ETF",
 }
 
+ASSET_TICKERS = {
+    "VOO": "Vanguard S&P 500 ETF",
+    "VT": "Vanguard Total World Stock ETF",
+    "IEFA": "iShares Core MSCI EAFE ETF",
+    "XIC.TO": "iShares Core S&P/TSX Capped Composite",
+    "BND": "Vanguard Total Bond Market ETF",
+    "GOVT": "iShares U.S. Treasury Bond ETF",
+    "GLD": "SPDR Gold Shares",
+    "VNQ": "Vanguard Real Estate ETF",
+    "SCHD": "Schwab U.S. Dividend Equity ETF",
+    "USMV": "iShares MSCI USA Min Vol Factor ETF",
+}
+
 VIX_TICKER = "^VIX"
 
 

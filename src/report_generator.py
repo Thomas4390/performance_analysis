@@ -460,51 +460,171 @@ class ReportGenerator:
         return fig
 
     def plot_returns_distribution(self) -> go.Figure:
-        """Plot returns distribution histogram."""
+        """Plot returns distribution with KDE curve, percentile markers, and stats."""
+        from scipy import stats as sp_stats
+
         returns_pct = self.strategy_returns * 100
 
-        fig = go.Figure()
+        fig = make_subplots(
+            rows=2, cols=1,
+            row_heights=[0.85, 0.15],
+            vertical_spacing=0.02,
+            shared_xaxes=True,
+        )
 
-        fig.add_trace(go.Histogram(
-            x=returns_pct,
-            nbinsx=50,
+        # --- Histogram with per-bar coloring (red/green gradient) ---
+        bin_edges = np.histogram_bin_edges(returns_pct.dropna(), bins=60)
+        counts, _ = np.histogram(returns_pct.dropna(), bins=bin_edges)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+        bar_colors = [
+            f"rgba(46,204,113,{0.45 + 0.45 * min(abs(c) / max(abs(bin_centers.max()), 1), 1)})"
+            if c >= 0
+            else f"rgba(231,76,60,{0.45 + 0.45 * min(abs(c) / max(abs(bin_centers.min()), 1), 1)})"
+            for c in bin_centers
+        ]
+
+        fig.add_trace(go.Bar(
+            x=bin_centers,
+            y=counts,
+            width=(bin_edges[1] - bin_edges[0]) * 0.92,
+            marker=dict(
+                color=bar_colors,
+                line=dict(color="rgba(255,255,255,0.4)", width=0.5),
+            ),
             name=self.strategy_name,
-            marker_color=PLOT_COLORS_NAMED["primary"],
-            opacity=0.7,
-        ))
+            hovertemplate="Return: %{x:.2f}%<br>Count: %{y}<extra></extra>",
+        ), row=1, col=1)
 
+        # --- KDE curve ---
+        kde_x = np.linspace(returns_pct.min(), returns_pct.max(), 300)
+        kde = sp_stats.gaussian_kde(returns_pct.dropna())
+        kde_y = kde(kde_x) * len(returns_pct) * (bin_edges[1] - bin_edges[0])
+
+        fig.add_trace(go.Scatter(
+            x=kde_x, y=kde_y,
+            mode="lines",
+            name="Density",
+            line=dict(color="#3498db", width=2.5, shape="spline"),
+            hoverinfo="skip",
+        ), row=1, col=1)
+
+        # --- Normal fit overlay for reference ---
+        norm_y = (
+            sp_stats.norm.pdf(kde_x, returns_pct.mean(), returns_pct.std())
+            * len(returns_pct) * (bin_edges[1] - bin_edges[0])
+        )
+        fig.add_trace(go.Scatter(
+            x=kde_x, y=norm_y,
+            mode="lines",
+            name="Normal fit",
+            line=dict(color="rgba(149,165,166,0.6)", width=1.5, dash="dash"),
+            hoverinfo="skip",
+        ), row=1, col=1)
+
+        # --- Benchmark KDE if available ---
         if self.benchmark_returns is not None:
             bench_pct = self.benchmark_returns * 100
-            fig.add_trace(go.Histogram(
-                x=bench_pct,
-                nbinsx=50,
+            bench_kde = sp_stats.gaussian_kde(bench_pct.dropna())
+            bench_kde_y = bench_kde(kde_x) * len(bench_pct) * (bin_edges[1] - bin_edges[0])
+            fig.add_trace(go.Scatter(
+                x=kde_x, y=bench_kde_y,
+                mode="lines",
                 name=self.benchmark_name,
-                marker_color=PLOT_COLORS_NAMED["dark"],
-                opacity=0.5,
-            ))
+                line=dict(color="#7f8c8d", width=2, dash="dot"),
+                hoverinfo="skip",
+            ), row=1, col=1)
 
-        fig.add_vline(x=0, line_dash="dash", line_color="red")
-
-        # Stats annotation
+        # --- Mean line ---
         mean_ret = returns_pct.mean()
-        std_ret = returns_pct.std()
+        fig.add_vline(
+            x=mean_ret, line_dash="solid", line_color="#2980b9",
+            line_width=2, opacity=0.8, row=1, col=1,
+        )
         fig.add_annotation(
-            x=0.02, y=0.98,
-            xref="paper", yref="paper",
-            text=f"Mean: {mean_ret:.3f}%<br>Std: {std_ret:.3f}%",
+            x=mean_ret, y=1.02, yref="paper", xref="x",
+            text=f"Mean {mean_ret:+.3f}%",
             showarrow=False,
-            bgcolor="white",
-            bordercolor="black",
-            borderwidth=1,
+            font=dict(size=11, color="#2980b9", family="monospace"),
         )
 
-        fig.update_layout(
-            title="Daily Returns Distribution",
-            xaxis_title="Daily Return (%)",
-            yaxis_title="Frequency",
-            barmode="overlay",
-            template=PLOT_TEMPLATE,
+        # --- Zero line ---
+        fig.add_vline(
+            x=0, line_dash="dash", line_color="rgba(192,57,43,0.5)",
+            line_width=1, row=1, col=1,
         )
+
+        # --- Percentile markers (5th / 95th) ---
+        p5 = np.percentile(returns_pct.dropna(), 5)
+        p95 = np.percentile(returns_pct.dropna(), 95)
+        for pval, label, color in [(p5, "5th", "#e74c3c"), (p95, "95th", "#27ae60")]:
+            fig.add_vline(
+                x=pval, line_dash="dot", line_color=color,
+                line_width=1.5, opacity=0.7, row=1, col=1,
+            )
+            fig.add_annotation(
+                x=pval, y=0.92, yref="paper", xref="x",
+                text=f"{label}: {pval:+.2f}%",
+                showarrow=False,
+                font=dict(size=9, color=color),
+                textangle=-90,
+            )
+
+        # --- Box plot (bottom strip) ---
+        fig.add_trace(go.Box(
+            x=returns_pct,
+            name="",
+            marker=dict(color="rgba(52,152,219,0.5)", size=2, outliercolor="rgba(231,76,60,0.6)"),
+            line=dict(color="#2c3e50", width=1.5),
+            fillcolor="rgba(52,152,219,0.15)",
+            boxmean="sd",
+            showlegend=False,
+            hoverinfo="x",
+        ), row=2, col=1)
+
+        # --- Stats annotation box ---
+        std_ret = returns_pct.std()
+        skew = returns_pct.skew()
+        kurt = returns_pct.kurtosis()
+        median_ret = returns_pct.median()
+        pos_pct = (returns_pct > 0).mean() * 100
+
+        stats_text = (
+            f"<b>Mean:</b> {mean_ret:+.3f}%  ·  <b>Median:</b> {median_ret:+.3f}%<br>"
+            f"<b>Std:</b> {std_ret:.3f}%  ·  <b>Skew:</b> {skew:+.2f}  ·  <b>Kurt:</b> {kurt:.2f}<br>"
+            f"<b>Positive days:</b> {pos_pct:.1f}%  ·  <b>N:</b> {len(returns_pct):,}"
+        )
+        fig.add_annotation(
+            x=0.98, y=0.97,
+            xref="paper", yref="paper",
+            text=stats_text,
+            showarrow=False,
+            font=dict(size=11, family="monospace"),
+            align="right",
+            xanchor="right",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="rgba(189,195,199,0.6)",
+            borderwidth=1,
+            borderpad=8,
+        )
+
+        # --- Layout ---
+        fig.update_layout(
+            height=520,
+            template=PLOT_TEMPLATE,
+            bargap=0.02,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.04,
+                xanchor="center", x=0.5,
+                font=dict(size=11),
+                bgcolor="rgba(255,255,255,0.7)",
+            ),
+            margin=dict(t=60, b=30, l=60, r=30),
+        )
+        fig.update_yaxes(title_text="Frequency", row=1, col=1, gridcolor="rgba(189,195,199,0.3)")
+        fig.update_yaxes(showticklabels=False, row=2, col=1)
+        fig.update_xaxes(title_text="Daily Return (%)", row=2, col=1)
+        fig.update_xaxes(showticklabels=False, row=1, col=1)
 
         return fig
 

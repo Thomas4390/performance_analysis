@@ -305,24 +305,119 @@ class TradesAnalyzer:
     # -----------------------------------------------------------------
 
     def plot_pnl_distribution(self) -> go.Figure:
-        """Histogram of trade P&L, coloured by win/loss."""
+        """Histogram of trade P&L with KDE curves, coloured by win/loss."""
+        from scipy import stats as sp_stats
+
         df = self._combined
         wins = df[df["IsWin"]]["P&L"]
         losses = df[~df["IsWin"]]["P&L"]
+        all_pnl = df["P&L"]
 
-        fig = go.Figure()
-        if not wins.empty:
-            fig.add_trace(go.Histogram(x=wins, name="Wins", marker_color="#2ca02c", opacity=0.75))
-        if not losses.empty:
-            fig.add_trace(go.Histogram(x=losses, name="Losses", marker_color="#d62728", opacity=0.75))
-        fig.update_layout(
-            title="P&L Distribution",
-            xaxis_title="P&L ($)",
-            yaxis_title="Count",
-            barmode="overlay",
-            template=PLOT_TEMPLATE,
-            height=PLOT_HEIGHT_STANDARD,
+        fig = make_subplots(
+            rows=2, cols=1,
+            row_heights=[0.85, 0.15],
+            vertical_spacing=0.02,
+            shared_xaxes=True,
         )
+
+        bin_edges = np.histogram_bin_edges(all_pnl.dropna(), bins=40)
+        bin_width = bin_edges[1] - bin_edges[0]
+
+        if not wins.empty:
+            w_counts, _ = np.histogram(wins, bins=bin_edges)
+            w_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            fig.add_trace(go.Bar(
+                x=w_centers, y=w_counts,
+                width=bin_width * 0.9,
+                name=f"Wins ({len(wins)})",
+                marker=dict(
+                    color=[f"rgba(46,204,113,{0.5 + 0.4 * min(c / max(w_centers.max(), 1), 1)})" for c in w_centers],
+                    line=dict(color="rgba(255,255,255,0.3)", width=0.5),
+                ),
+                hovertemplate="P&L: $%{x:,.0f}<br>Count: %{y}<extra>Wins</extra>",
+            ), row=1, col=1)
+
+        if not losses.empty:
+            l_counts, _ = np.histogram(losses, bins=bin_edges)
+            l_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            fig.add_trace(go.Bar(
+                x=l_centers, y=l_counts,
+                width=bin_width * 0.9,
+                name=f"Losses ({len(losses)})",
+                marker=dict(
+                    color=[f"rgba(231,76,60,{0.5 + 0.4 * min(abs(c) / max(abs(l_centers.min()), 1), 1)})" for c in l_centers],
+                    line=dict(color="rgba(255,255,255,0.3)", width=0.5),
+                ),
+                hovertemplate="P&L: $%{x:,.0f}<br>Count: %{y}<extra>Losses</extra>",
+            ), row=1, col=1)
+
+        # KDE curve
+        if len(all_pnl.dropna()) > 2:
+            kde_x = np.linspace(all_pnl.min(), all_pnl.max(), 200)
+            kde = sp_stats.gaussian_kde(all_pnl.dropna())
+            kde_y = kde(kde_x) * len(all_pnl) * bin_width
+            fig.add_trace(go.Scatter(
+                x=kde_x, y=kde_y,
+                mode="lines", name="Density",
+                line=dict(color="#2c3e50", width=2.5, shape="spline"),
+                hoverinfo="skip",
+            ), row=1, col=1)
+
+        # Mean & zero lines
+        mean_pnl = all_pnl.mean()
+        fig.add_vline(x=0, line_dash="dash", line_color="rgba(192,57,43,0.4)", line_width=1, row=1, col=1)
+        fig.add_vline(x=mean_pnl, line_dash="solid", line_color="#2980b9", line_width=2, opacity=0.8, row=1, col=1)
+        fig.add_annotation(
+            x=mean_pnl, y=1.02, yref="paper", xref="x",
+            text=f"Mean ${mean_pnl:+,.0f}",
+            showarrow=False, font=dict(size=11, color="#2980b9", family="monospace"),
+        )
+
+        # Box plot strip
+        fig.add_trace(go.Box(
+            x=all_pnl, name="",
+            marker=dict(color="rgba(52,152,219,0.5)", size=2),
+            line=dict(color="#2c3e50", width=1.5),
+            fillcolor="rgba(52,152,219,0.15)",
+            boxmean="sd", showlegend=False, hoverinfo="x",
+        ), row=2, col=1)
+
+        # Stats box
+        win_rate = len(wins) / len(df) * 100 if len(df) else 0
+        avg_win = wins.mean() if not wins.empty else 0
+        avg_loss = losses.mean() if not losses.empty else 0
+        profit_factor = abs(wins.sum() / losses.sum()) if not losses.empty and losses.sum() != 0 else float("inf")
+
+        stats_text = (
+            f"<b>Win rate:</b> {win_rate:.1f}%  ·  <b>Trades:</b> {len(df)}<br>"
+            f"<b>Avg win:</b> ${avg_win:+,.0f}  ·  <b>Avg loss:</b> ${avg_loss:+,.0f}<br>"
+            f"<b>Profit factor:</b> {profit_factor:.2f}  ·  <b>Total:</b> ${all_pnl.sum():+,.0f}"
+        )
+        fig.add_annotation(
+            x=0.98, y=0.97, xref="paper", yref="paper",
+            text=stats_text, showarrow=False,
+            font=dict(size=11, family="monospace"), align="right", xanchor="right",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="rgba(189,195,199,0.6)", borderwidth=1, borderpad=8,
+        )
+
+        fig.update_layout(
+            height=PLOT_HEIGHT_STANDARD,
+            template=PLOT_TEMPLATE,
+            barmode="overlay",
+            bargap=0.02,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.04,
+                xanchor="center", x=0.5, font=dict(size=11),
+                bgcolor="rgba(255,255,255,0.7)",
+            ),
+            margin=dict(t=60, b=30, l=60, r=30),
+        )
+        fig.update_yaxes(title_text="Count", row=1, col=1, gridcolor="rgba(189,195,199,0.3)")
+        fig.update_yaxes(showticklabels=False, row=2, col=1)
+        fig.update_xaxes(title_text="P&L ($)", row=2, col=1)
+        fig.update_xaxes(showticklabels=False, row=1, col=1)
+
         return fig
 
     def plot_cumulative_pnl(self) -> go.Figure:
@@ -440,39 +535,177 @@ class TradesAnalyzer:
         return fig
 
     def plot_holding_period_distribution(self) -> go.Figure:
-        """Histogram of holding periods in hours."""
+        """Histogram of holding periods with KDE and box strip."""
+        from scipy import stats as sp_stats
+
         if "Holding Hours" not in self._combined.columns:
             return go.Figure()
-        fig = go.Figure(go.Histogram(
-            x=self._combined["Holding Hours"],
-            marker_color=PLOT_COLORS[0],
-            opacity=0.75,
-        ))
-        fig.update_layout(
-            title="Holding Period Distribution",
-            xaxis_title="Hours",
-            yaxis_title="Count",
-            template=PLOT_TEMPLATE,
-            height=PLOT_HEIGHT_STANDARD,
+
+        data = self._combined["Holding Hours"].dropna()
+        if data.empty:
+            return go.Figure()
+
+        fig = make_subplots(
+            rows=2, cols=1, row_heights=[0.85, 0.15],
+            vertical_spacing=0.02, shared_xaxes=True,
         )
+
+        bin_edges = np.histogram_bin_edges(data, bins=35)
+        counts, _ = np.histogram(data, bins=bin_edges)
+        centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        bin_width = bin_edges[1] - bin_edges[0]
+
+        # Gradient blue bars
+        max_c = centers.max() if centers.max() > 0 else 1
+        bar_colors = [f"rgba(52,152,219,{0.4 + 0.5 * (c / max_c)})" for c in centers]
+
+        fig.add_trace(go.Bar(
+            x=centers, y=counts, width=bin_width * 0.9,
+            name="Holding Period",
+            marker=dict(color=bar_colors, line=dict(color="rgba(255,255,255,0.4)", width=0.5)),
+            hovertemplate="Hours: %{x:.1f}<br>Count: %{y}<extra></extra>",
+        ), row=1, col=1)
+
+        # KDE
+        if len(data) > 2:
+            kde_x = np.linspace(data.min(), data.max(), 200)
+            kde = sp_stats.gaussian_kde(data)
+            kde_y = kde(kde_x) * len(data) * bin_width
+            fig.add_trace(go.Scatter(
+                x=kde_x, y=kde_y, mode="lines", name="Density",
+                line=dict(color="#2c3e50", width=2.5, shape="spline"),
+                hoverinfo="skip",
+            ), row=1, col=1)
+
+        # Mean / Median lines
+        mean_val = data.mean()
+        median_val = data.median()
+        fig.add_vline(x=mean_val, line_dash="solid", line_color="#2980b9", line_width=2, opacity=0.8, row=1, col=1)
+        fig.add_vline(x=median_val, line_dash="dot", line_color="#e67e22", line_width=2, opacity=0.7, row=1, col=1)
+        fig.add_annotation(
+            x=mean_val, y=1.02, yref="paper", xref="x",
+            text=f"Mean {mean_val:.1f}h", showarrow=False,
+            font=dict(size=10, color="#2980b9", family="monospace"),
+        )
+        fig.add_annotation(
+            x=median_val, y=0.95, yref="paper", xref="x",
+            text=f"Med {median_val:.1f}h", showarrow=False,
+            font=dict(size=10, color="#e67e22", family="monospace"),
+        )
+
+        # Box strip
+        fig.add_trace(go.Box(
+            x=data, name="", marker=dict(color="rgba(52,152,219,0.5)", size=2),
+            line=dict(color="#2c3e50", width=1.5),
+            fillcolor="rgba(52,152,219,0.15)",
+            boxmean="sd", showlegend=False, hoverinfo="x",
+        ), row=2, col=1)
+
+        fig.update_layout(
+            height=PLOT_HEIGHT_STANDARD, template=PLOT_TEMPLATE, bargap=0.02,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.04,
+                xanchor="center", x=0.5, font=dict(size=11),
+                bgcolor="rgba(255,255,255,0.7)",
+            ),
+            margin=dict(t=60, b=30, l=60, r=30),
+        )
+        fig.update_yaxes(title_text="Count", row=1, col=1, gridcolor="rgba(189,195,199,0.3)")
+        fig.update_yaxes(showticklabels=False, row=2, col=1)
+        fig.update_xaxes(title_text="Holding Period (hours)", row=2, col=1)
+        fig.update_xaxes(showticklabels=False, row=1, col=1)
+
         return fig
 
     def plot_drawdown_distribution(self) -> go.Figure:
-        """Histogram of per-trade drawdowns."""
+        """Histogram of per-trade drawdowns with KDE and box strip."""
+        from scipy import stats as sp_stats
+
         if "Drawdown" not in self._combined.columns:
             return go.Figure()
-        fig = go.Figure(go.Histogram(
-            x=self._combined["Drawdown"],
-            marker_color="#d62728",
-            opacity=0.75,
-        ))
-        fig.update_layout(
-            title="Per-Trade Drawdown Distribution",
-            xaxis_title="Drawdown ($)",
-            yaxis_title="Count",
-            template=PLOT_TEMPLATE,
-            height=PLOT_HEIGHT_STANDARD,
+
+        data = self._combined["Drawdown"].dropna()
+        if data.empty:
+            return go.Figure()
+
+        fig = make_subplots(
+            rows=2, cols=1, row_heights=[0.85, 0.15],
+            vertical_spacing=0.02, shared_xaxes=True,
         )
+
+        bin_edges = np.histogram_bin_edges(data, bins=35)
+        counts, _ = np.histogram(data, bins=bin_edges)
+        centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        bin_width = bin_edges[1] - bin_edges[0]
+
+        # Gradient red bars (deeper drawdown = more intense)
+        min_c = centers.min() if centers.min() < 0 else -1
+        bar_colors = [f"rgba(231,76,60,{0.35 + 0.55 * min(abs(c) / abs(min_c), 1)})" for c in centers]
+
+        fig.add_trace(go.Bar(
+            x=centers, y=counts, width=bin_width * 0.9,
+            name="Drawdown",
+            marker=dict(color=bar_colors, line=dict(color="rgba(255,255,255,0.4)", width=0.5)),
+            hovertemplate="Drawdown: $%{x:,.0f}<br>Count: %{y}<extra></extra>",
+        ), row=1, col=1)
+
+        # KDE
+        if len(data) > 2:
+            kde_x = np.linspace(data.min(), data.max(), 200)
+            kde = sp_stats.gaussian_kde(data)
+            kde_y = kde(kde_x) * len(data) * bin_width
+            fig.add_trace(go.Scatter(
+                x=kde_x, y=kde_y, mode="lines", name="Density",
+                line=dict(color="#2c3e50", width=2.5, shape="spline"),
+                hoverinfo="skip",
+            ), row=1, col=1)
+
+        # Mean line
+        mean_val = data.mean()
+        fig.add_vline(x=mean_val, line_dash="solid", line_color="#c0392b", line_width=2, opacity=0.8, row=1, col=1)
+        fig.add_annotation(
+            x=mean_val, y=1.02, yref="paper", xref="x",
+            text=f"Mean ${mean_val:+,.0f}", showarrow=False,
+            font=dict(size=11, color="#c0392b", family="monospace"),
+        )
+
+        # Stats box
+        p5 = np.percentile(data, 5)
+        p95 = np.percentile(data, 95)
+        stats_text = (
+            f"<b>Mean:</b> ${mean_val:+,.0f}  ·  <b>Median:</b> ${data.median():+,.0f}<br>"
+            f"<b>Worst:</b> ${data.min():+,.0f}  ·  <b>5th pct:</b> ${p5:+,.0f}"
+        )
+        fig.add_annotation(
+            x=0.98, y=0.97, xref="paper", yref="paper",
+            text=stats_text, showarrow=False,
+            font=dict(size=11, family="monospace"), align="right", xanchor="right",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="rgba(189,195,199,0.6)", borderwidth=1, borderpad=8,
+        )
+
+        # Box strip
+        fig.add_trace(go.Box(
+            x=data, name="", marker=dict(color="rgba(231,76,60,0.5)", size=2),
+            line=dict(color="#2c3e50", width=1.5),
+            fillcolor="rgba(231,76,60,0.15)",
+            boxmean="sd", showlegend=False, hoverinfo="x",
+        ), row=2, col=1)
+
+        fig.update_layout(
+            height=PLOT_HEIGHT_STANDARD, template=PLOT_TEMPLATE, bargap=0.02,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.04,
+                xanchor="center", x=0.5, font=dict(size=11),
+                bgcolor="rgba(255,255,255,0.7)",
+            ),
+            margin=dict(t=60, b=30, l=60, r=30),
+        )
+        fig.update_yaxes(title_text="Count", row=1, col=1, gridcolor="rgba(189,195,199,0.3)")
+        fig.update_yaxes(showticklabels=False, row=2, col=1)
+        fig.update_xaxes(title_text="Drawdown ($)", row=2, col=1)
+        fig.update_xaxes(showticklabels=False, row=1, col=1)
+
         return fig
 
     def plot_pnl_heatmap(self) -> go.Figure:

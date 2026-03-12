@@ -28,6 +28,7 @@ from config import (
     BACKTESTS_DIR,
     TRADES_DIR,
     BENCHMARK_TICKERS,
+    ASSET_TICKERS,
     PLOT_COLORS,
     PLOT_TEMPLATE,
     DEFAULT_VIX_REGIMES,
@@ -1198,6 +1199,62 @@ def render_sidebar():
 
         st.markdown("---")
 
+        # ----- Load Assets (ETFs) -----
+        st.markdown("### Load Asset (ETF)")
+
+        # Filter out already loaded assets
+        not_loaded_assets = [
+            t for t in ASSET_TICKERS
+            if t not in st.session_state.backtests
+        ]
+
+        if not_loaded_assets:
+            selected_asset = st.selectbox(
+                "Select asset to compare",
+                options=[""] + not_loaded_assets,
+                format_func=lambda x: "Select an asset..." if x == "" else f"{x} - {ASSET_TICKERS[x]}",
+                label_visibility="collapsed",
+                key="asset_select",
+            )
+            col_load, col_all = st.columns(2)
+            with col_load:
+                load_one = selected_asset and st.button("Load Asset", type="primary", width="stretch", key="load_asset_btn")
+            with col_all:
+                load_all = st.button("Load All", type="secondary", width="stretch", key="load_all_assets_btn")
+
+            if load_one:
+                try:
+                    downloader = MarketDataDownloader(cache_dir=CACHE_DIR)
+                    df = downloader.download_asset_as_backtest(selected_asset, start_date="2010-01-01")
+                    st.session_state.backtests[selected_asset] = df
+                    st.session_state.loaded_files.add(selected_asset)
+                    st.toast(f"Loaded asset: {selected_asset}", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error loading {selected_asset}: {e}")
+
+            if load_all:
+                downloader = MarketDataDownloader(cache_dir=CACHE_DIR)
+                progress = st.progress(0, text="Loading assets...")
+                loaded = 0
+                for i, ticker in enumerate(not_loaded_assets):
+                    try:
+                        df = downloader.download_asset_as_backtest(ticker, start_date="2010-01-01")
+                        st.session_state.backtests[ticker] = df
+                        st.session_state.loaded_files.add(ticker)
+                        loaded += 1
+                    except Exception as e:
+                        st.error(f"Error loading {ticker}: {e}")
+                    progress.progress((i + 1) / len(not_loaded_assets), text=f"Loading {ticker}...")
+                progress.empty()
+                if loaded:
+                    st.toast(f"Loaded {loaded} assets", icon="✅")
+                    st.rerun()
+        else:
+            st.info("All available assets are loaded")
+
+        st.markdown("---")
+
         # ----- Load Trades -----
         trade_count = len(st.session_state.trades)
         st.markdown(f"### Load Trades {'✅ ' + str(trade_count) if trade_count else ''}")
@@ -1381,10 +1438,22 @@ def render_weights_tab():
     backtest_names = list(st.session_state.backtests.keys())
     default_weight = 100.0 / len(backtest_names)
 
+    # Reset all weights to equal when the set of backtests changes
+    current_set = frozenset(backtest_names)
+    if st.session_state.get("_weights_backtest_set") != current_set:
+        for name in backtest_names:
+            st.session_state[f"weight_{name}"] = default_weight
+        st.session_state["_weights_backtest_set"] = current_set
+
     col1, col2 = st.columns([3, 2])
 
     with col1:
         _render_card_header("⚖️", "primary", "Portfolio Allocation", "Adjust weights for each strategy")
+
+        if st.button("Reset to Equal Weights", type="secondary"):
+            for name in backtest_names:
+                st.session_state[f"weight_{name}"] = default_weight
+            st.rerun()
 
         for name in backtest_names:
             col_name, col_slider = st.columns([1, 3])
@@ -2499,6 +2568,275 @@ def render_correlation_tab():
 
 
 # =============================================================================
+# ASSET COMPARISON TAB
+# =============================================================================
+
+def render_asset_comparison_tab():
+    """Render the multi-asset comparison tab for performance and correlation analysis."""
+    if len(st.session_state.backtests) < 2:
+        _render_info_box(
+            "⚠️", "Not Enough Data",
+            "Load at least 2 strategies or assets to compare. Use the sidebar to load assets (ETFs).",
+        )
+        return
+
+    st.markdown("""
+    <div class="section-header">
+        <div class="section-header-icon">📊</div>
+        <div>
+            <h2 class="section-title">Multi-Asset Comparison</h2>
+            <p class="section-subtitle">Compare performance and correlation across multiple assets and strategies</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    all_names = list(st.session_state.backtests.keys())
+
+    selected = st.multiselect(
+        "Select assets/strategies to compare",
+        options=all_names,
+        default=all_names,
+        help="Choose which assets and strategies to include in the comparison.",
+    )
+
+    if len(selected) < 2:
+        st.warning("Select at least 2 assets or strategies.")
+        return
+
+    # Build aligned returns DataFrame
+    returns_dict = {}
+    for name in selected:
+        df = st.session_state.backtests[name]
+        s = df.set_index("date")["daily_return_decimal"]
+        s.index = pd.to_datetime(s.index)
+        returns_dict[name] = s
+
+    returns_df = pd.DataFrame(returns_dict).dropna()
+
+    if returns_df.empty or len(returns_df) < 20:
+        st.warning("Not enough overlapping data between selected assets. Check date ranges.")
+        return
+
+    comp_tabs = st.tabs([
+        "📈 Performance",
+        "🔗 Correlation Matrix",
+        "📉 Rolling Correlation",
+        "📊 Risk/Return",
+    ])
+
+    # --- Performance Comparison ---
+    with comp_tabs[0]:
+        st.markdown("#### Cumulative Returns Comparison")
+        cumulative = (1 + returns_df).cumprod()
+
+        fig = go.Figure()
+        for i, col in enumerate(cumulative.columns):
+            fig.add_trace(go.Scatter(
+                x=cumulative.index,
+                y=cumulative[col].values,
+                mode="lines",
+                name=col,
+                line=dict(color=PLOT_COLORS[i % len(PLOT_COLORS)], width=2),
+            ))
+        fig.update_layout(
+            title=dict(text="Growth of $1", font=dict(size=16), y=0.98, x=0.5, xanchor="center"),
+            xaxis_title="",
+            yaxis_title="Growth of $1",
+            hovermode="x unified",
+            template=PLOT_TEMPLATE,
+            height=500,
+            margin=dict(t=80, b=40, l=60, r=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="center", x=0.5),
+        )
+        st.plotly_chart(fig, width="stretch")
+
+        # Performance metrics table
+        st.markdown("#### Performance Summary")
+        perf_data = []
+        for name in selected:
+            s = returns_df[name]
+            n_years = len(s) / TRADING_DAYS_PER_YEAR
+            total_ret = (1 + s).prod() - 1
+            cagr = (1 + total_ret) ** (1 / n_years) - 1 if n_years > 0 else 0
+            vol = s.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+            sharpe = (s.mean() / s.std()) * np.sqrt(TRADING_DAYS_PER_YEAR) if s.std() > 0 else 0
+            cum = (1 + s).cumprod()
+            running_max = cum.cummax()
+            drawdown = (cum - running_max) / running_max
+            max_dd = drawdown.min()
+            downside = s[s < 0].std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+            sortino = (s.mean() * TRADING_DAYS_PER_YEAR) / downside if downside > 0 else 0
+            calmar = cagr / abs(max_dd) if max_dd != 0 else 0
+
+            perf_data.append({
+                "Asset": name,
+                "Total Return": f"{total_ret:.2%}",
+                "CAGR": f"{cagr:.2%}",
+                "Volatility": f"{vol:.2%}",
+                "Sharpe": f"{sharpe:.2f}",
+                "Sortino": f"{sortino:.2f}",
+                "Max DD": f"{max_dd:.2%}",
+                "Calmar": f"{calmar:.2f}",
+                "Win Rate": f"{(s > 0).mean():.1%}",
+            })
+
+        st.dataframe(pd.DataFrame(perf_data), width="stretch", hide_index=True)
+
+    # --- Correlation Matrix ---
+    with comp_tabs[1]:
+        st.markdown("#### Correlation Matrix")
+
+        corr_method = st.radio(
+            "Method",
+            options=["pearson", "spearman", "kendall"],
+            horizontal=True,
+            key="asset_corr_method",
+        )
+
+        corr_matrix = returns_df.corr(method=corr_method)
+
+        # Heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=corr_matrix.values,
+            x=corr_matrix.columns,
+            y=corr_matrix.index,
+            colorscale="RdBu_r",
+            zmid=0,
+            zmin=-1,
+            zmax=1,
+            text=np.round(corr_matrix.values, 3),
+            texttemplate="%{text}",
+            textfont=dict(size=12),
+            hovertemplate="<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.3f}<extra></extra>",
+        ))
+        fig.update_layout(
+            title=dict(text=f"{corr_method.title()} Correlation Matrix", font=dict(size=16)),
+            height=500,
+            template=PLOT_TEMPLATE,
+            margin=dict(t=60, b=40, l=100, r=20),
+        )
+        st.plotly_chart(fig, width="stretch")
+
+        # Numerical values
+        st.dataframe(
+            corr_matrix.style.background_gradient(cmap="RdBu_r", vmin=-1, vmax=1).format("{:.3f}"),
+            width="stretch",
+        )
+
+    # --- Rolling Correlation ---
+    with comp_tabs[2]:
+        st.markdown("#### Rolling Pairwise Correlation")
+
+        window = st.slider(
+            "Rolling window (days)",
+            min_value=20,
+            max_value=TRADING_DAYS_PER_YEAR,
+            value=60,
+            step=10,
+            key="asset_rolling_window",
+        )
+
+        # Generate all pairs
+        pairs = []
+        for i in range(len(selected)):
+            for j in range(i + 1, len(selected)):
+                pairs.append((selected[i], selected[j]))
+
+        fig = go.Figure()
+        for idx, (a, b) in enumerate(pairs):
+            rolling_corr = returns_df[a].rolling(window).corr(returns_df[b])
+            fig.add_trace(go.Scatter(
+                x=rolling_corr.index,
+                y=rolling_corr.values,
+                mode="lines",
+                name=f"{a} vs {b}",
+                line=dict(color=PLOT_COLORS[idx % len(PLOT_COLORS)], width=1.5),
+            ))
+
+        fig.update_layout(
+            title=dict(text=f"{window}-Day Rolling Correlation", font=dict(size=16)),
+            xaxis_title="",
+            yaxis_title="Correlation",
+            yaxis=dict(range=[-1, 1]),
+            hovermode="x unified",
+            template=PLOT_TEMPLATE,
+            height=500,
+            margin=dict(t=60, b=40, l=60, r=20),
+            legend=dict(orientation="h", yanchor="bottom", y=1.08, xanchor="center", x=0.5),
+        )
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+        st.plotly_chart(fig, width="stretch")
+
+        # Summary stats
+        st.markdown("#### Rolling Correlation Statistics")
+        stats_data = []
+        for a, b in pairs:
+            rc = returns_df[a].rolling(window).corr(returns_df[b]).dropna()
+            stats_data.append({
+                "Pair": f"{a} vs {b}",
+                "Mean": f"{rc.mean():.3f}",
+                "Std": f"{rc.std():.3f}",
+                "Min": f"{rc.min():.3f}",
+                "Max": f"{rc.max():.3f}",
+                "Current": f"{rc.iloc[-1]:.3f}" if len(rc) > 0 else "N/A",
+            })
+        st.dataframe(pd.DataFrame(stats_data), width="stretch", hide_index=True)
+
+    # --- Risk/Return Scatter ---
+    with comp_tabs[3]:
+        st.markdown("#### Risk-Return Scatter")
+
+        annualized_returns = []
+        annualized_vols = []
+        sharpes = []
+        for name in selected:
+            s = returns_df[name]
+            n_years = len(s) / TRADING_DAYS_PER_YEAR
+            total_ret = (1 + s).prod() - 1
+            cagr = (1 + total_ret) ** (1 / n_years) - 1 if n_years > 0 else 0
+            vol = s.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+            sharpe = (s.mean() / s.std()) * np.sqrt(TRADING_DAYS_PER_YEAR) if s.std() > 0 else 0
+            annualized_returns.append(cagr)
+            annualized_vols.append(vol)
+            sharpes.append(sharpe)
+
+        fig = go.Figure()
+        for i, name in enumerate(selected):
+            fig.add_trace(go.Scatter(
+                x=[annualized_vols[i]],
+                y=[annualized_returns[i]],
+                mode="markers+text",
+                name=name,
+                text=[name],
+                textposition="top center",
+                marker=dict(
+                    size=max(15, min(40, sharpes[i] * 15)),
+                    color=PLOT_COLORS[i % len(PLOT_COLORS)],
+                    line=dict(width=1, color="white"),
+                ),
+                hovertemplate=(
+                    f"<b>{name}</b><br>"
+                    f"CAGR: {annualized_returns[i]:.2%}<br>"
+                    f"Volatility: {annualized_vols[i]:.2%}<br>"
+                    f"Sharpe: {sharpes[i]:.2f}<extra></extra>"
+                ),
+            ))
+
+        fig.update_layout(
+            title=dict(text="Risk vs Return (bubble size = Sharpe)", font=dict(size=16)),
+            xaxis_title="Annualized Volatility",
+            yaxis_title="CAGR",
+            xaxis=dict(tickformat=".0%"),
+            yaxis=dict(tickformat=".0%"),
+            template=PLOT_TEMPLATE,
+            height=500,
+            margin=dict(t=60, b=60, l=60, r=20),
+            showlegend=False,
+        )
+        st.plotly_chart(fig, width="stretch")
+
+
+# =============================================================================
 # EXPORT TAB
 # =============================================================================
 
@@ -2903,7 +3241,7 @@ def main():
 
     benchmark_ticker, initial_capital = render_sidebar()
 
-    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "📉 VRP Analysis", "🔗 Correlation", "📋 Trades", "💾 Export"])
+    tabs = st.tabs(["📁 Upload", "⚖️ Weights", "📊 Analysis", "🌡️ VIX Regimes", "📉 VRP Analysis", "📊 Asset Comparison", "🔗 Correlation", "📋 Trades", "💾 Export"])
 
     with tabs[0]:
         render_upload_tab()
@@ -2916,10 +3254,12 @@ def main():
     with tabs[4]:
         render_vrp_tab()
     with tabs[5]:
-        render_correlation_tab()
+        render_asset_comparison_tab()
     with tabs[6]:
-        render_trades_tab()
+        render_correlation_tab()
     with tabs[7]:
+        render_trades_tab()
+    with tabs[8]:
         render_export_tab()
 
     # Footer

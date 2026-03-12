@@ -402,73 +402,133 @@ class VRPAnalyzer:
 
     def plot_vrp_distribution(self) -> go.Figure:
         """
-        Plot VRP distribution histogram.
+        Plot VRP distribution with KDE, percentile markers, and box strip.
 
         Returns:
             Plotly figure.
         """
+        from scipy import stats as sp_stats
+
         vrp = self._vrp_df["vrp"]
 
-        fig = go.Figure()
-
-        # Histogram with color split
-        fig.add_trace(go.Histogram(
-            x=vrp[vrp >= 0],
-            name="Positive VRP",
-            marker_color="rgba(44, 160, 44, 0.7)",
-            nbinsx=50,
-        ))
-        fig.add_trace(go.Histogram(
-            x=vrp[vrp < 0],
-            name="Negative VRP",
-            marker_color="rgba(214, 39, 40, 0.7)",
-            nbinsx=50,
-        ))
-
-        # Add vertical lines for mean and current with better positioning
-        fig.add_vline(
-            x=vrp.mean(),
-            line_dash="dash",
-            line_color="purple",
-            annotation=dict(
-                text=f"Mean: {vrp.mean():.1f}%",
-                yanchor="bottom",
-                y=1.02,
-                font=dict(color="purple", size=11),
-                showarrow=False,
-            ),
+        fig = make_subplots(
+            rows=2, cols=1, row_heights=[0.85, 0.15],
+            vertical_spacing=0.02, shared_xaxes=True,
         )
-        fig.add_vline(
-            x=vrp.iloc[-1],
-            line_dash="dot",
-            line_color="black",
-            annotation=dict(
-                text=f"Current: {vrp.iloc[-1]:.1f}%",
-                yanchor="bottom",
-                y=0.92,
-                font=dict(color="black", size=11),
-                showarrow=False,
-            ),
+
+        # Compute bins once for consistent coloring
+        bin_edges = np.histogram_bin_edges(vrp.dropna(), bins=50)
+        bin_width = bin_edges[1] - bin_edges[0]
+
+        # Positive VRP bars
+        pos_vrp = vrp[vrp >= 0]
+        if not pos_vrp.empty:
+            p_counts, _ = np.histogram(pos_vrp, bins=bin_edges)
+            centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            max_pos = max(centers[centers >= 0].max(), 1) if (centers >= 0).any() else 1
+            p_colors = [
+                f"rgba(46,204,113,{0.4 + 0.5 * min(c / max_pos, 1)})" if c >= 0
+                else "rgba(46,204,113,0.0)"
+                for c in centers
+            ]
+            fig.add_trace(go.Bar(
+                x=centers, y=p_counts, width=bin_width * 0.9,
+                name="Positive VRP",
+                marker=dict(color=p_colors, line=dict(color="rgba(255,255,255,0.3)", width=0.5)),
+                hovertemplate="VRP: %{x:.1f}%<br>Count: %{y}<extra>Positive</extra>",
+            ), row=1, col=1)
+
+        # Negative VRP bars
+        neg_vrp = vrp[vrp < 0]
+        if not neg_vrp.empty:
+            n_counts, _ = np.histogram(neg_vrp, bins=bin_edges)
+            centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            min_neg = min(centers[centers < 0].min(), -1) if (centers < 0).any() else -1
+            n_colors = [
+                f"rgba(231,76,60,{0.4 + 0.5 * min(abs(c) / abs(min_neg), 1)})" if c < 0
+                else "rgba(231,76,60,0.0)"
+                for c in centers
+            ]
+            fig.add_trace(go.Bar(
+                x=centers, y=n_counts, width=bin_width * 0.9,
+                name="Negative VRP",
+                marker=dict(color=n_colors, line=dict(color="rgba(255,255,255,0.3)", width=0.5)),
+                hovertemplate="VRP: %{x:.1f}%<br>Count: %{y}<extra>Negative</extra>",
+            ), row=1, col=1)
+
+        # KDE curve
+        if len(vrp.dropna()) > 2:
+            kde_x = np.linspace(vrp.min(), vrp.max(), 300)
+            kde = sp_stats.gaussian_kde(vrp.dropna())
+            kde_y = kde(kde_x) * len(vrp) * bin_width
+            fig.add_trace(go.Scatter(
+                x=kde_x, y=kde_y, mode="lines", name="Density",
+                line=dict(color="#2c3e50", width=2.5, shape="spline"),
+                hoverinfo="skip",
+            ), row=1, col=1)
+
+        # Mean & current lines
+        mean_vrp = vrp.mean()
+        current_vrp = vrp.iloc[-1]
+        fig.add_vline(x=0, line_dash="solid", line_color="rgba(127,140,141,0.5)", line_width=1.5, row=1, col=1)
+        fig.add_vline(x=mean_vrp, line_dash="solid", line_color="#8e44ad", line_width=2, opacity=0.8, row=1, col=1)
+        fig.add_vline(x=current_vrp, line_dash="dot", line_color="#2c3e50", line_width=2, opacity=0.8, row=1, col=1)
+
+        fig.add_annotation(
+            x=mean_vrp, y=1.02, yref="paper", xref="x",
+            text=f"Mean {mean_vrp:+.1f}%", showarrow=False,
+            font=dict(size=11, color="#8e44ad", family="monospace"),
         )
-        fig.add_vline(x=0, line_dash="solid", line_color="gray", line_width=2)
+        fig.add_annotation(
+            x=current_vrp, y=0.93, yref="paper", xref="x",
+            text=f"Current {current_vrp:+.1f}%", showarrow=False,
+            font=dict(size=11, color="#2c3e50", family="monospace"),
+        )
+
+        # Percentile markers
+        p10 = np.percentile(vrp.dropna(), 10)
+        p90 = np.percentile(vrp.dropna(), 90)
+        for pval, label, color in [(p10, "10th", "#e74c3c"), (p90, "90th", "#27ae60")]:
+            fig.add_vline(x=pval, line_dash="dot", line_color=color, line_width=1.5, opacity=0.6, row=1, col=1)
+
+        # Box strip
+        fig.add_trace(go.Box(
+            x=vrp, name="",
+            marker=dict(color="rgba(142,68,173,0.5)", size=2),
+            line=dict(color="#2c3e50", width=1.5),
+            fillcolor="rgba(142,68,173,0.15)",
+            boxmean="sd", showlegend=False, hoverinfo="x",
+        ), row=2, col=1)
+
+        # Stats box
+        pos_pct = (vrp > 0).mean() * 100
+        stats_text = (
+            f"<b>Mean:</b> {mean_vrp:+.1f}%  ·  <b>Median:</b> {vrp.median():+.1f}%<br>"
+            f"<b>Std:</b> {vrp.std():.1f}%  ·  <b>Positive:</b> {pos_pct:.0f}%<br>"
+            f"<b>10th:</b> {p10:+.1f}%  ·  <b>90th:</b> {p90:+.1f}%"
+        )
+        fig.add_annotation(
+            x=0.98, y=0.97, xref="paper", yref="paper",
+            text=stats_text, showarrow=False,
+            font=dict(size=11, family="monospace"), align="right", xanchor="right",
+            bgcolor="rgba(255,255,255,0.85)",
+            bordercolor="rgba(189,195,199,0.6)", borderwidth=1, borderpad=8,
+        )
 
         fig.update_layout(
-            title=dict(
-                text="VRP Distribution",
-                y=0.95,
-            ),
-            xaxis_title="VRP (%)",
-            yaxis_title="Frequency",
-            barmode="overlay",
-            template=PLOT_TEMPLATE,
-            margin=dict(t=80),
+            height=520, template=PLOT_TEMPLATE,
+            barmode="overlay", bargap=0.02,
             legend=dict(
-                yanchor="top",
-                y=0.99,
-                xanchor="right",
-                x=0.99,
+                orientation="h", yanchor="bottom", y=1.04,
+                xanchor="center", x=0.5, font=dict(size=11),
+                bgcolor="rgba(255,255,255,0.7)",
             ),
+            margin=dict(t=60, b=30, l=60, r=30),
         )
+        fig.update_yaxes(title_text="Frequency", row=1, col=1, gridcolor="rgba(189,195,199,0.3)")
+        fig.update_yaxes(showticklabels=False, row=2, col=1)
+        fig.update_xaxes(title_text="VRP (%)", row=2, col=1)
+        fig.update_xaxes(showticklabels=False, row=1, col=1)
 
         return fig
 
@@ -709,7 +769,7 @@ class VRPAnalyzer:
 
     def plot_regime_distribution_pie(self) -> go.Figure:
         """
-        Plot time distribution across VRP regimes.
+        Plot time distribution across VRP regimes as donut chart.
 
         Returns:
             Plotly figure.
@@ -719,20 +779,40 @@ class VRPAnalyzer:
         counts = counts.reindex([r for r in regime_order if r in counts.index])
 
         colors = {r.name: r.color for r in self.regimes}
+        total_days = counts.sum()
 
         fig = go.Figure(data=[
             go.Pie(
                 labels=counts.index,
                 values=counts.values,
-                marker=dict(colors=[colors.get(r, "#999999") for r in counts.index]),
+                marker=dict(
+                    colors=[colors.get(r, "#999999") for r in counts.index],
+                    line=dict(color="white", width=2),
+                ),
+                hole=0.45,
                 textinfo="label+percent",
-                hovertemplate="<b>%{label}</b><br>Days: %{value}<br>%{percent}<extra></extra>",
+                textposition="outside",
+                textfont=dict(size=12),
+                hovertemplate="<b>%{label}</b><br>Days: %{value:,}<br>%{percent}<extra></extra>",
+                pull=[0.03] * len(counts),
             )
         ])
+
+        fig.add_annotation(
+            text=f"<b>{total_days:,}</b><br><span style='font-size:11px;color:#7f8c8d'>days</span>",
+            x=0.5, y=0.5, xref="paper", yref="paper",
+            showarrow=False, font=dict(size=18),
+        )
 
         fig.update_layout(
             title="Time Distribution Across VRP Regimes",
             template=PLOT_TEMPLATE,
+            showlegend=True,
+            legend=dict(
+                orientation="h", yanchor="top", y=-0.05,
+                xanchor="center", x=0.5, font=dict(size=11),
+            ),
+            margin=dict(t=60, b=60, l=30, r=30),
         )
 
         return fig

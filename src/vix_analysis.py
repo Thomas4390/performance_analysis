@@ -211,26 +211,46 @@ class VixRegimeAnalyzer:
     # =========================================================================
 
     def plot_regime_distribution(self) -> go.Figure:
-        """Create pie chart of time spent in each regime."""
+        """Create donut chart of time spent in each regime."""
         counts = self._regime_series.value_counts()
         regime_order = [r.name for r in self.regimes]
         counts = counts.reindex([r for r in regime_order if r in counts.index])
 
         colors = {r.name: r.color for r in self.regimes}
+        total_days = counts.sum()
 
         fig = go.Figure(data=[
             go.Pie(
                 labels=counts.index,
                 values=counts.values,
-                marker=dict(colors=[colors.get(r, "#999999") for r in counts.index]),
+                marker=dict(
+                    colors=[colors.get(r, "#999999") for r in counts.index],
+                    line=dict(color="white", width=2),
+                ),
+                hole=0.45,
                 textinfo="label+percent",
-                hovertemplate="<b>%{label}</b><br>Days: %{value}<br>%{percent}<extra></extra>",
+                textposition="outside",
+                textfont=dict(size=12),
+                hovertemplate="<b>%{label}</b><br>Days: %{value:,}<br>%{percent}<extra></extra>",
+                pull=[0.03] * len(counts),
             )
         ])
+
+        fig.add_annotation(
+            text=f"<b>{total_days:,}</b><br><span style='font-size:11px;color:#7f8c8d'>days</span>",
+            x=0.5, y=0.5, xref="paper", yref="paper",
+            showarrow=False, font=dict(size=18),
+        )
 
         fig.update_layout(
             title="Time Distribution Across VIX Regimes",
             template=PLOT_TEMPLATE,
+            showlegend=True,
+            legend=dict(
+                orientation="h", yanchor="top", y=-0.05,
+                xanchor="center", x=0.5, font=dict(size=11),
+            ),
+            margin=dict(t=60, b=60, l=30, r=30),
         )
 
         return fig
