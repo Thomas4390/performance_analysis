@@ -238,13 +238,13 @@ class TradesLoader:
                 "Date": entry_date,
                 "Symbol": symbol,
                 "Direction": direction,
-                "Price": trade["Entry Price"],
+                "Price": round(float(trade["Entry Price"]), 4),
             })
             rows.append({
                 "Date": entry_date,
                 "Symbol": symbol,
                 "Direction": exit_direction,
-                "Price": trade["Exit Price"],
+                "Price": round(float(trade["Exit Price"]), 4),
             })
 
         return pd.DataFrame(rows)

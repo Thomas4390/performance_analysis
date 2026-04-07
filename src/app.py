@@ -3062,55 +3062,58 @@ def render_export_tab():
     with col1:
         _render_card_header("📊", "primary", "Export Data", "Download raw data and metrics")
 
-        if st.session_state.portfolio and st.session_state.strategy_returns is not None:
-            strategy_returns = st.session_state.strategy_returns
-            benchmark_returns = st.session_state.benchmark_returns
+        try:
+            if st.session_state.portfolio and st.session_state.strategy_returns is not None:
+                strategy_returns = st.session_state.strategy_returns
+                benchmark_returns = st.session_state.benchmark_returns
 
-            # Use cached CSV preparation
-            csv_data = _prepare_portfolio_csv(
-                strategy_returns.values,
-                strategy_returns.index.values,
-                benchmark_returns.values if benchmark_returns is not None else None,
-            )
+                # Use cached CSV preparation
+                csv_data = _prepare_portfolio_csv(
+                    strategy_returns.values,
+                    strategy_returns.index.values,
+                    benchmark_returns.values if benchmark_returns is not None else None,
+                )
 
-            st.download_button(
-                label="Download Portfolio Data (CSV)",
-                data=csv_data,
-                file_name="combined_portfolio.csv",
-                mime="text/csv",
-                width="stretch",
-            )
+                st.download_button(
+                    label="Download Portfolio Data (CSV)",
+                    data=csv_data,
+                    file_name="combined_portfolio.csv",
+                    mime="text/csv",
+                    width="stretch",
+                )
 
-        if st.session_state.strategy_returns is not None:
-            strategy_returns = st.session_state.strategy_returns
-            benchmark_returns = st.session_state.benchmark_returns
+            if st.session_state.strategy_returns is not None:
+                strategy_returns = st.session_state.strategy_returns
+                benchmark_returns = st.session_state.benchmark_returns
 
-            # Use cached metrics preparation
-            metrics_json = _prepare_metrics_json(
-                strategy_returns.values,
-                strategy_returns.index.values,
-                benchmark_returns.values if benchmark_returns is not None else None,
-                benchmark_returns.index.values if benchmark_returns is not None else None,
-            )
+                # Use cached metrics preparation
+                metrics_json = _prepare_metrics_json(
+                    strategy_returns.values,
+                    strategy_returns.index.values,
+                    benchmark_returns.values if benchmark_returns is not None else None,
+                    benchmark_returns.index.values if benchmark_returns is not None else None,
+                )
 
-            st.download_button(
-                label="Download Metrics (JSON)",
-                data=metrics_json,
-                file_name="performance_metrics.json",
-                mime="application/json",
-                width="stretch",
-            )
+                st.download_button(
+                    label="Download Metrics (JSON)",
+                    data=metrics_json,
+                    file_name="performance_metrics.json",
+                    mime="application/json",
+                    width="stretch",
+                )
 
-        if st.session_state.trades:
-            combined_trades = pd.concat(st.session_state.trades.values(), ignore_index=True)
-            export_df = TradesLoader.format_for_export(combined_trades)
-            st.download_button(
-                label="Download Trades (CSV)",
-                data=export_df.to_csv(index=False),
-                file_name="trades_export.csv",
-                mime="text/csv",
-                width="stretch",
-            )
+            if st.session_state.trades:
+                combined_trades = pd.concat(st.session_state.trades.values(), ignore_index=True)
+                export_df = TradesLoader.format_for_export(combined_trades)
+                st.download_button(
+                    label="Download Trades (CSV)",
+                    data=export_df.to_csv(index=False),
+                    file_name="trades_export.csv",
+                    mime="text/csv",
+                    width="stretch",
+                )
+        except Exception as e:
+            st.error(f"Error preparing exports: {e}")
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -3186,43 +3189,61 @@ def render_export_tab():
         st.markdown("---")
         _render_card_header("📋", "primary", "Trade Data Export", "Download trade logs")
 
-        trade_analyzer = _get_trades_analyzer()
-        combined_trades = trade_analyzer.combined
+        try:
+            trade_analyzer = _get_trades_analyzer()
+            combined_trades = trade_analyzer.combined
 
-        # Combined trades CSV
-        combined_buf = io.StringIO()
-        combined_trades.to_csv(combined_buf, index=False)
-        st.download_button(
-            label="Download Combined Trades (CSV)",
-            data=combined_buf.getvalue(),
-            file_name="combined_trades.csv",
-            mime="text/csv",
-            width="stretch",
-        )
+            # Combined trades CSV — clean datetimes, drop timedelta, round floats
+            export_combined = combined_trades.copy()
+            for tc in ("Entry Time", "Exit Time"):
+                if tc in export_combined.columns:
+                    export_combined[tc] = export_combined[tc].dt.strftime("%Y-%m-%d %H:%M:%S")
+            for pc in ("Entry Price", "Exit Price"):
+                if pc in export_combined.columns:
+                    export_combined[pc] = export_combined[pc].round(4)
+            export_combined = export_combined.drop(columns=["Holding Period"], errors="ignore")
+            if "Holding Hours" in export_combined.columns:
+                export_combined["Holding Hours"] = export_combined["Holding Hours"].round(2)
+            combined_buf = io.StringIO()
+            export_combined.to_csv(combined_buf, index=False)
+            st.download_button(
+                label="Download Combined Trades (CSV)",
+                data=combined_buf.getvalue(),
+                file_name="combined_trades.csv",
+                mime="text/csv",
+                width="stretch",
+            )
 
-        # Split trades CSV
-        split_trades = TradesLoader.split_trades(combined_trades)
-        split_buf = io.StringIO()
-        split_trades.to_csv(split_buf, index=False)
-        st.download_button(
-            label="Download Split Trades (CSV)",
-            data=split_buf.getvalue(),
-            file_name="split_trades.csv",
-            mime="text/csv",
-            width="stretch",
-        )
+            # Split trades CSV — clean timestamps and round prices
+            split_trades_df = TradesLoader.split_trades(combined_trades)
+            if not split_trades_df.empty:
+                if "Timestamp" in split_trades_df.columns:
+                    split_trades_df["Timestamp"] = split_trades_df["Timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+                if "Price" in split_trades_df.columns:
+                    split_trades_df["Price"] = split_trades_df["Price"].round(4)
+            split_buf = io.StringIO()
+            split_trades_df.to_csv(split_buf, index=False)
+            st.download_button(
+                label="Download Split Trades (CSV)",
+                data=split_buf.getvalue(),
+                file_name="split_trades.csv",
+                mime="text/csv",
+                width="stretch",
+            )
 
-        # Split trades clean CSV
-        split_clean = TradesLoader.split_trades_clean(combined_trades)
-        clean_buf = io.StringIO()
-        split_clean.to_csv(clean_buf, index=False)
-        st.download_button(
-            label="Download Split Trades Clean (CSV)",
-            data=clean_buf.getvalue(),
-            file_name="split_trades_clean.csv",
-            mime="text/csv",
-            width="stretch",
-        )
+            # Split trades clean CSV
+            split_clean = TradesLoader.split_trades_clean(combined_trades)
+            clean_buf = io.StringIO()
+            split_clean.to_csv(clean_buf, index=False)
+            st.download_button(
+                label="Download Split Trades Clean (CSV)",
+                data=clean_buf.getvalue(),
+                file_name="split_trades_clean.csv",
+                mime="text/csv",
+                width="stretch",
+            )
+        except Exception as e:
+            st.error(f"Error preparing trade exports: {e}")
 
         st.markdown("</div>", unsafe_allow_html=True)
 
